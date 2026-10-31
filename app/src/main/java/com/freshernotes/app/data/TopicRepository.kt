@@ -13,6 +13,12 @@ class TopicRepository @Inject constructor(private val topicDao: TopicDao) {
 
     fun observe(id: Long): Flow<TopicEntity?> = topicDao.observe(id)
 
+    suspend fun get(id: Long): TopicEntity? = topicDao.get(id)
+
+    suspend fun all(): List<TopicEntity> = topicDao.getAll()
+
+    suspend fun allTitles(): List<String> = topicDao.getAll().map { it.title }
+
     suspend fun saveMarkdown(id: Long, markdown: String) {
         val t = topicDao.get(id) ?: return
         topicDao.update(t.copy(markdown = markdown, updatedAt = System.currentTimeMillis()))

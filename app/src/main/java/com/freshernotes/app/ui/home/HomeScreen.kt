@@ -1,7 +1,14 @@
 package com.freshernotes.app.ui.home
 
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.ui.platform.testTag
+import com.freshernotes.app.search.DocKind
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
@@ -35,6 +42,9 @@ fun HomeScreen(
 ) {
     val topics by vm.topics.collectAsStateWithLifecycle()
     val recent by vm.recent.collectAsStateWithLifecycle()
+    val query by vm.query.collectAsStateWithLifecycle()
+    val results by vm.results.collectAsStateWithLifecycle()
+    val missing by vm.missingModels.collectAsStateWithLifecycle()
     Scaffold(
         topBar = {
             TopAppBar(
@@ -53,6 +63,42 @@ fun HomeScreen(
         },
     ) { padding ->
         LazyColumn(Modifier.padding(padding)) {
+            if (missing.isNotEmpty()) item {
+                Card(
+                    Modifier.fillMaxWidth().padding(12.dp).clickable(onClick = onOpenSettings),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer),
+                ) {
+                    Text(
+                        "Models needed: " + missing.joinToString { it.label } + ". Tap to pick them in Settings.",
+                        Modifier.padding(12.dp),
+                    )
+                }
+            }
+            item {
+                OutlinedTextField(
+                    value = query,
+                    onValueChange = vm::setQuery,
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp).testTag("search"),
+                    placeholder = { Text("Search notes and sessions") },
+                    leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
+                    singleLine = true,
+                )
+            }
+            if (query.isNotBlank()) {
+                item { SectionHeader("Results") }
+                if (results.isEmpty()) item { EmptyRow("No matches.") }
+                items(results, key = { "r${it.kind}${it.refId}" }) { hit ->
+                    ListItem(
+                        headlineContent = { Text(hit.title) },
+                        supportingContent = { Text(hit.snippet.replace("**", "")) },
+                        overlineContent = { Text(if (hit.kind == DocKind.TOPIC) "Topic" else "Session") },
+                        modifier = Modifier.clickable {
+                            if (hit.kind == DocKind.TOPIC) onOpenTopic(hit.refId) else onOpenSession(hit.refId)
+                        },
+                    )
+                }
+                item { HorizontalDivider() }
+            }
             item { SectionHeader("Topics") }
             if (topics.isEmpty()) item { EmptyRow("No topics yet. Notes appear here after your first session.") }
             items(topics, key = { "t${it.id}" }) { t ->
@@ -68,7 +114,16 @@ fun HomeScreen(
             items(recent, key = { "s${it.id}" }) { s ->
                 ListItem(
                     headlineContent = { Text(s.title) },
-                    supportingContent = { Text(if (s.endedAt == null) "In progress" else "Ended " + formatTime(s.endedAt)) },
+                    supportingContent = {
+                        Text(
+                            when {
+                                s.endedAt == null -> "In progress"
+                                s.notesStatus == "PENDING" -> "Writing notes…"
+                                s.notesStatus == "FAILED" -> "Notes failed (will retry on next launch)"
+                                else -> "Ended " + formatTime(s.endedAt)
+                            },
+                        )
+                    },
                     modifier = Modifier.clickable { onOpenSession(s.id) },
                 )
             }

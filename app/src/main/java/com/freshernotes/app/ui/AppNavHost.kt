@@ -33,7 +33,7 @@ fun AppNavHost() {
             )
         }
         composable(Routes.SESSION, arguments = listOf(navArgument("sessionId") { type = NavType.LongType })) {
-            SessionScreen(onBack = { nav.popBackStack() })
+            SessionScreen(onBack = { nav.popBackStack() }, onOpenTopic = { nav.navigate(Routes.notes(it)) })
         }
         composable(Routes.NOTES, arguments = listOf(navArgument("topicId") { type = NavType.LongType })) {
             NotesScreen(onBack = { nav.popBackStack() })

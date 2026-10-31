@@ -1,6 +1,7 @@
 package com.freshernotes.app.data
 
 import com.freshernotes.app.data.db.SessionDao
+import com.freshernotes.app.data.db.NotesStatus
 import com.freshernotes.app.data.db.SessionEntity
 import com.freshernotes.app.data.db.TurnDao
 import com.freshernotes.app.data.db.TurnEntity
@@ -37,8 +38,18 @@ class SessionRepository @Inject constructor(
         sessionDao.update(s.copy(runningSummary = summary, summarizedTurnCount = summarizedTurnCount))
     }
 
+    /** Marks the session ended and queues note generation. */
     suspend fun endSession(sessionId: Long) {
         val s = sessionDao.get(sessionId) ?: return
-        sessionDao.update(s.copy(endedAt = System.currentTimeMillis()))
+        sessionDao.update(s.copy(endedAt = s.endedAt ?: System.currentTimeMillis(), notesStatus = NotesStatus.PENDING))
     }
+
+    suspend fun setNotes(sessionId: Long, status: String, markdown: String = "", topicId: Long? = null) {
+        val s = sessionDao.get(sessionId) ?: return
+        sessionDao.update(s.copy(notesStatus = status, notesMarkdown = markdown.ifEmpty { s.notesMarkdown }, topicId = topicId ?: s.topicId))
+    }
+
+    suspend fun pendingNotes(): List<SessionEntity> = sessionDao.pendingNotes()
+
+    fun sessionsForTopic(topicId: Long): Flow<List<SessionEntity>> = sessionDao.observeForTopic(topicId)
 }

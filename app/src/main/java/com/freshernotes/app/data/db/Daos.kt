@@ -45,6 +45,12 @@ interface SessionDao {
     @Insert
     suspend fun insert(session: SessionEntity): Long
 
+    @Query("SELECT * FROM sessions WHERE notesStatus IN ('PENDING', 'FAILED')")
+    suspend fun pendingNotes(): List<SessionEntity>
+
+    @Query("SELECT * FROM sessions WHERE topicId = :topicId ORDER BY startedAt DESC")
+    fun observeForTopic(topicId: Long): Flow<List<SessionEntity>>
+
     @Update
     suspend fun update(session: SessionEntity)
 }

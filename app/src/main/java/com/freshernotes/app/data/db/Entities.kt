@@ -1,5 +1,6 @@
 package com.freshernotes.app.data.db
 
+import androidx.room.ColumnInfo
 import androidx.room.Entity
 import androidx.room.ForeignKey
 import androidx.room.Index
@@ -25,7 +26,19 @@ data class SessionEntity(
     val runningSummary: String = "",
     /** Number of turns (from the start) already folded into [runningSummary]. */
     val summarizedTurnCount: Int = 0,
+    /** NONE, PENDING, DONE or FAILED; see [NotesStatus]. */
+    @ColumnInfo(defaultValue = "NONE") val notesStatus: String = NotesStatus.NONE,
+    /** Notes generated for this session alone (also merged into the topic page). */
+    @ColumnInfo(defaultValue = "") val notesMarkdown: String = "",
+    val topicId: Long? = null,
 )
+
+object NotesStatus {
+    const val NONE = "NONE"
+    const val PENDING = "PENDING"
+    const val DONE = "DONE"
+    const val FAILED = "FAILED"
+}
 
 @Entity(
     tableName = "turns",
