@@ -2,14 +2,31 @@
 
 | Phase | Scope | Status |
 |---|---|---|
-| 1 | Project skeleton, Compose UI shell, Room database, CI workflow | Done locally, CI not yet run (push blocked) |
-| 2 | whisper.cpp JNI, WAV transcription instrumented test | Done locally, CI not yet run (push blocked) |
-| 3 | Live microphone + VAD feeding whisper | Done locally, awaiting CI |
-| 4 | llama.cpp JNI, streaming tokens, persona prompt | Not started |
-| 5 | TTS (sherpa-onnx + Piper, Android TTS fallback) | Not started |
-| 6 | Conversation loop + context summarization | Not started |
-| 7 | Note generation, topic merge, FTS5 search, Markdown export | Not started |
-| 8 | Polish: battery/thermal, errors, README, release without INTERNET | Not started |
+| 1 | Project skeleton, Compose UI shell, Room database, CI workflow | ✅ CI green |
+| 2 | whisper.cpp JNI, WAV transcription instrumented test | ✅ CI green |
+| 3 | Live microphone + VAD feeding whisper | ✅ CI green |
+| 4 | llama.cpp JNI, streaming tokens, persona prompt | ✅ CI green |
+| 5 | TTS (sherpa-onnx + Piper, Android TTS fallback) | ✅ CI green |
+| 6 | Conversation loop + context summarization | ✅ CI green |
+| 7 | Note generation, topic merge, FTS5 search, Markdown export | ✅ CI green |
+| 8 | Polish: battery/thermal, errors, README, release without INTERNET | ✅ CI green |
+
+**CI** (`2c1f87e`, Android CI runs 15 and 16, both green):
+- Build job: `assembleDebug`, `testDebugUnitTest`, `:core:test` (40 JVM tests), `assembleRelease`, and an `aapt2` check that the release APK has no `INTERNET` permission.
+- Instrumented job: 15 tests on an API 34 x86_64 emulator with real stand-in models (whisper tiny.en, Silero v5.1.2, Qwen2.5-0.5B Q4_K_M, Piper amy-low):
+  - `DatabaseTest` 2
+  - `WhisperEngineTest` 1
+  - `StreamingPipelineTest` 3
+  - `LlamaEngineTest` 4
+  - `PiperSynthesizerTest` 2
+  - `ConversationLoopTest` 1
+  - `NotesPipelineTest` 2
+
+**Bugs CI found and fixed along the way:**
+- `setup-android`'s obsolete default `tools` package.
+- The 0.5B model summarizing instead of asking a question. Fixed with an end-of-prompt reminder, a strict retry and a fallback question.
+- Uninitialized Silero LSTM state in whisper.cpp's streaming VAD, which gave nondeterministic scores.
+- Locally: the endpointer losing speech after a forced 28 s cut.
 
 ## Phase 1: skeleton
 Built:
