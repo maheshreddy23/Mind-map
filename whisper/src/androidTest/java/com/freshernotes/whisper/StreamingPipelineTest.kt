@@ -8,7 +8,6 @@ import com.freshernotes.core.audio.Framer
 import com.freshernotes.core.audio.SpeechDetector
 import com.freshernotes.core.audio.Wav
 import kotlinx.coroutines.runBlocking
-import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -55,11 +54,18 @@ class StreamingPipelineTest {
     }
 
     @Test
-    fun sileroVadSilenceIsNotSpeech() {
+    fun sileroVadSeparatesSilenceFromSpeech() {
+        val ctx = InstrumentationRegistry.getInstrumentation().context
+        val speech = ctx.assets.open("jfk.wav").use { Wav.toWhisperInput(it.readBytes()) }
         SileroVad.load(TestModels.copy("ggml-silero-v5.1.2.bin")).use { vad ->
-            val p = vad.speechProbability(FloatArray(512))
-            assertTrue("silence scored $p", p < 0.3f)
-            assertEquals(Unit, vad.reset())
+            // A recurrent VAD needs a few windows of context: the first window after a reset is uninformed (~0.45),
+            // which is why the Endpointer requires 250 ms of consecutive speech before triggering.
+            val silenceProbs = (0 until 32).map { vad.speechProbability(FloatArray(512)) }
+            assertTrue("silence after warm-up scored ${silenceProbs.takeLast(8)}", silenceProbs.takeLast(8).all { it < 0.3f })
+            vad.reset()
+            val speechProbs = (0 until speech.size / 512).map { i -> vad.speechProbability(speech.copyOfRange(i * 512, i * 512 + 512)) }
+            val voiced = speechProbs.count { it > 0.5f }.toFloat() / speechProbs.size
+            assertTrue("only ${voiced * 100}% of JFK frames scored as speech", voiced > 0.5f)
         }
     }
 }
