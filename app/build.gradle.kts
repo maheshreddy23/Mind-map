@@ -66,6 +66,7 @@ ksp {
 
 dependencies {
     implementation(project(":core"))
+    implementation(project(":whisper"))
 
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.activity.compose)

@@ -77,6 +77,15 @@ jobs:
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
 
+      - name: Cache test models
+        uses: actions/cache@v4
+        with:
+          path: test-models
+          key: test-models-${{ hashFiles('scripts/download-test-models.sh') }}
+
+      - name: Download test models
+        run: scripts/download-test-models.sh test-models
+
       - name: Build test APKs (x86_64 included)
         run: ./gradlew -PwithX86_64 assembleDebug assembleDebugAndroidTest --stacktrace
 
@@ -90,11 +99,13 @@ jobs:
           disk-size: 6000M
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
           disable-animations: true
-          script: ./gradlew -PwithX86_64 connectedDebugAndroidTest --stacktrace
+          script: |
+            scripts/push-test-models.sh test-models
+            ./gradlew -PwithX86_64 connectedDebugAndroidTest --stacktrace
 
       - name: Upload instrumented test reports
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: instrumented-test-reports
-          path: app/build/reports/androidTests/
+          path: "**/build/reports/androidTests/"

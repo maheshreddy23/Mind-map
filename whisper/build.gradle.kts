@@ -1,0 +1,59 @@
+import org.jetbrains.kotlin.gradle.dsl.JvmTarget
+
+plugins {
+    alias(libs.plugins.android.library)
+    alias(libs.plugins.kotlin.android)
+}
+
+val emulatorAbi = providers.gradleProperty("withX86_64").isPresent
+
+android {
+    namespace = "com.freshernotes.whisper"
+    compileSdk = 35
+    ndkVersion = rootProject.extra["ndkVersion"] as String
+
+    defaultConfig {
+        minSdk = 29
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        ndk {
+            abiFilters += "arm64-v8a"
+            if (emulatorAbi) abiFilters += "x86_64"
+        }
+        externalNativeBuild {
+            cmake {
+                arguments += listOf("-DANDROID_STL=c++_shared", "-DCMAKE_BUILD_TYPE=Release")
+            }
+        }
+    }
+
+    externalNativeBuild {
+        cmake {
+            path = file("src/main/cpp/CMakeLists.txt")
+            version = rootProject.extra["cmakeVersion"] as String
+        }
+    }
+
+    sourceSets {
+        // whisper.cpp ships jfk.wav; reuse it as the instrumented-test fixture.
+        getByName("androidTest").assets.srcDir("../third_party/whisper.cpp/samples")
+    }
+
+    compileOptions {
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
+    }
+}
+
+kotlin {
+    compilerOptions { jvmTarget.set(JvmTarget.JVM_17) }
+}
+
+dependencies {
+    implementation(project(":core"))
+    implementation(libs.kotlinx.coroutines.android)
+
+    androidTestImplementation(libs.junit)
+    androidTestImplementation(libs.androidx.test.runner)
+    androidTestImplementation(libs.androidx.test.ext.junit)
+    androidTestImplementation(libs.kotlinx.coroutines.test)
+}

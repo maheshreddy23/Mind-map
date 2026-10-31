@@ -16,4 +16,5 @@ dependencyResolutionManagement {
 rootProject.name = "FresherNotes"
 
 include(":core")
+include(":whisper")
 include(":app")
