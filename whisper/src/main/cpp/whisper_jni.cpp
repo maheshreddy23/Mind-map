@@ -136,6 +136,9 @@ Java_com_freshernotes_whisper_WhisperNative_vadInit(JNIEnv *env, jobject, jstrin
     vparams.use_gpu = false;
     whisper_vad_context *vctx = whisper_vad_init_from_file_with_params(path, vparams);
     env->ReleaseStringUTFChars(jpath, path);
+    // whisper.cpp allocates the LSTM h/c state without clearing it; only whisper_vad_reset_state zeroes it.
+    // The streaming (_no_reset) path would otherwise start from uninitialized memory.
+    if (vctx != nullptr) whisper_vad_reset_state(vctx);
     return reinterpret_cast<jlong>(vctx);
 }
 
