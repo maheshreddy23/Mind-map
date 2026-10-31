@@ -7,4 +7,4 @@ for f in "$DIR"/*; do
   adb push "$f" /data/local/tmp/models/ >/dev/null
   echo "pushed $(basename "$f")"
 done
-adb shell chmod 644 '/data/local/tmp/models/*'
+adb shell chmod -R a+rX /data/local/tmp/models
