@@ -11,6 +11,28 @@ object Persona {
         Keep replies under $maxWords words. When the senior says "wrap up", stop asking questions.
     """.trimIndent().replace(Regex("\n(?=\\S)"), " ")
 
+    /**
+     * Reminder appended to the latest senior turn. Small models drift into summarizing; a short instruction at the
+     * end of the prompt keeps them in character far more reliably than the system prompt alone.
+     */
+    fun nudge(maxWords: Int, strict: Boolean = false): String =
+        if (strict) "(You are Arjun. Do NOT summarize or explain. Reply with exactly ONE short question ending in \"?\", under $maxWords words.)"
+        else "(Reply as Arjun: ask ONE short, specific question, under $maxWords words.)"
+
+    /** A cleaned reply counts as a question if it ends with a question mark. */
+    fun isQuestion(reply: String): Boolean = reply.trim().endsWith("?")
+
+    private val fallbacks = listOf(
+        "Could you give me a concrete example of that?",
+        "Why is it done this way and not another way?",
+        "What mistakes do new engineers usually make here?",
+        "How does this connect to what you explained earlier?",
+        "What does that term mean exactly?",
+    )
+
+    /** Used only when the model fails twice to produce a question, so the conversation never stalls. */
+    fun fallbackQuestion(turnIndex: Int): String = fallbacks[Math.floorMod(turnIndex, fallbacks.size)]
+
     /** Detects the spoken wrap-up command ("wrap up", "let's wrap it up", "wrapping up"). */
     fun isWrapUp(text: String): Boolean =
         Regex("""\bwrap(?:ping)?\s+(?:it\s+|this\s+|things\s+)?up\b""", RegexOption.IGNORE_CASE).containsMatchIn(text)

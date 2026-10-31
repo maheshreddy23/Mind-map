@@ -73,6 +73,7 @@ Tests:
 ## Phase 6: conversation loop and context management
 Built:
 - `ConversationController`: each senior turn is saved immediately → `QuestionPolicy` (every N turns, or "wrap up") → `ContextManager` builds the prompt → if it uses more than 70% of the context, the older turns are summarized into `sessions.runningSummary` → streamed question → saved → spoken with the mic muted.
+- Staying in character: the latest senior turn carries a short "ask ONE question" reminder. If the reply still is not a question, the controller retries once at temperature 0.2 with a stricter reminder, then falls back to a generic follow-up ("Could you give me a concrete example of that?"). CI found this with the 0.5B model, which summarized the senior's explanation in a numbered list instead of asking.
 - `ContextManager` keeps at least the 6 most recent turns verbatim and folds at least half of the unsummarized turns each time, so summarization does not run again on every turn. It merges consecutive same-role turns for chat templates.
 - Session screen: streamed "Arjun is thinking…" text, speaking and summarizing states, and error messages (for example a missing model, with a pointer to Settings).
 

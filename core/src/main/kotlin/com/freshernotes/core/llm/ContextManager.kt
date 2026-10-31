@@ -24,13 +24,17 @@ class ContextManager(
     private val keepRecentTurns: Int = 6,
     private val replyReserveTokens: Int = 128,
 ) {
-    fun messages(memory: ConversationMemory, systemPrompt: String): List<ChatMessage> {
+    /** Prompt messages; [nudge] (if given) is appended to the final senior message. */
+    fun messages(memory: ConversationMemory, systemPrompt: String, nudge: String? = null): List<ChatMessage> {
         val system = if (memory.summary.isBlank()) systemPrompt
         else "$systemPrompt\n\nWhat the senior explained earlier in this session (summary):\n${memory.summary.trim()}"
         val turns = memory.recentTurns.filter { it.speaker != Speaker.SYSTEM }.map {
             ChatMessage(if (it.speaker == Speaker.FRESHER) Role.ASSISTANT else Role.USER, it.text)
         }
-        return listOf(ChatMessage(Role.SYSTEM, system)) + mergeConsecutive(turns)
+        val merged = mergeConsecutive(turns).toMutableList()
+        val last = merged.lastOrNull()
+        if (nudge != null && last != null && last.role == Role.USER) merged[merged.lastIndex] = last.copy(content = last.content + "\n\n" + nudge)
+        return listOf(ChatMessage(Role.SYSTEM, system)) + merged
     }
 
     /** Fraction of the context window the next prompt (plus reply reserve) would use. */

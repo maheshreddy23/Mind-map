@@ -89,25 +89,13 @@ class ConversationController @Inject constructor(
                 memory = context.compact(memory)
                 sessions.updateSummary(sessionId, memory.summary, memory.summarizedCount)
             }
-            _state.value = FresherState.Thinking("")
-            val raw = StringBuilder()
-            val t0 = System.nanoTime()
-            var firstTokenMs = -1L
-            var chunks = 0
-            // ~1.6 tokens per word, plus slack so the cleaner can cut at the first question mark.
-            model.stream(context.messages(memory, system), maxTokens = (maxWords * 2).coerceAtLeast(48), temperature = 0.7f)
-                .collect {
-                    if (firstTokenMs < 0) firstTokenMs = (System.nanoTime() - t0) / 1_000_000
-                    chunks++
-                    raw.append(it)
-                    _state.value = FresherState.Thinking(raw.toString())
-                }
-            if (firstTokenMs >= 0) perf.recordLlm(firstTokenMs, chunks, (System.nanoTime() - t0) / 1_000_000)
-            val question = Persona.cleanReply(raw.toString(), maxWords)
-            if (question.isBlank()) {
-                _state.value = FresherState.Idle
-                return
+            // Attempt 1: normal sampling with a gentle reminder. Attempt 2: near-greedy with a strict reminder.
+            // If the model still will not ask (small models sometimes summarize), use a generic follow-up.
+            var question = generate(model, context.messages(memory, system, Persona.nudge(maxWords)), maxWords, 0.7f, record = true)
+            if (!Persona.isQuestion(question)) {
+                question = generate(model, context.messages(memory, system, Persona.nudge(maxWords, strict = true)), maxWords, 0.2f, record = false)
             }
+            if (!Persona.isQuestion(question)) question = Persona.fallbackQuestion(memory.allTurns.size)
             sessions.addTurn(sessionId, Speaker.FRESHER, question)
             _state.value = FresherState.Speaking(question)
             speech?.muted = true
@@ -124,6 +112,29 @@ class ConversationController @Inject constructor(
         } catch (e: Exception) {
             _state.value = FresherState.Error(e.message ?: "The fresher could not respond")
         }
+    }
+
+    private suspend fun generate(
+        model: LlamaLanguageModel,
+        messages: List<com.freshernotes.core.llm.ChatMessage>,
+        maxWords: Int,
+        temperature: Float,
+        record: Boolean,
+    ): String {
+        _state.value = FresherState.Thinking("")
+        val raw = StringBuilder()
+        val t0 = System.nanoTime()
+        var firstTokenMs = -1L
+        var chunks = 0
+        // ~1.6 tokens per word, plus slack so the cleaner can cut at the first question mark.
+        model.stream(messages, maxTokens = (maxWords * 2).coerceAtLeast(48), temperature = temperature).collect {
+            if (firstTokenMs < 0) firstTokenMs = (System.nanoTime() - t0) / 1_000_000
+            chunks++
+            raw.append(it)
+            _state.value = FresherState.Thinking(raw.toString())
+        }
+        if (record && firstTokenMs >= 0) perf.recordLlm(firstTokenMs, chunks, (System.nanoTime() - t0) / 1_000_000)
+        return Persona.cleanReply(raw.toString(), maxWords)
     }
 
     fun clearError() {

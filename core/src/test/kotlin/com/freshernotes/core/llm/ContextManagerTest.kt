@@ -31,6 +31,20 @@ class ContextManagerTest {
     }
 
     @Test
+    fun nudgeIsAppendedToLastSeniorTurnOnly() {
+        val t = listOf(ChatTurn(Speaker.SENIOR, "a"), ChatTurn(Speaker.FRESHER, "q?"), ChatTurn(Speaker.SENIOR, "b"))
+        val msgs = ContextManager(FakeModel()).messages(ConversationMemory("", 0, t), system, nudge = Persona.nudge(40))
+        assertEquals("a", msgs[1].content)
+        assertTrue(msgs[3].content.startsWith("b\n\n(Reply as Arjun"))
+    }
+
+    @Test
+    fun fallbackQuestionsAreQuestions() {
+        (0 until 10).forEach { assertTrue(Persona.isQuestion(Persona.fallbackQuestion(it))) }
+        assertFalse(Persona.isQuestion("1. Drill jigs are used…"))
+    }
+
+    @Test
     fun compactsOnlyAboveSeventyPercent() {
         val model = FakeModel(contextSize = 1000)
         val cm = ContextManager(model)
