@@ -17,4 +17,6 @@ rootProject.name = "FresherNotes"
 
 include(":core")
 include(":whisper")
+include(":llama")
+include(":tts")
 include(":app")

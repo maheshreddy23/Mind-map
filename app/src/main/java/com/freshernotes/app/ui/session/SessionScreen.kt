@@ -20,8 +20,11 @@ import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material3.LargeFloatingActionButton
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalView
+import androidx.compose.runtime.DisposableEffect
 import androidx.core.content.ContextCompat
 import com.freshernotes.app.audio.ListenState
+import com.freshernotes.app.session.FresherState
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
@@ -48,10 +51,16 @@ import com.freshernotes.app.ui.BackTopBar
 import com.freshernotes.core.Speaker
 
 @Composable
-fun SessionScreen(onBack: () -> Unit, vm: SessionViewModel = hiltViewModel()) {
+fun SessionScreen(onBack: () -> Unit, onOpenTopic: (Long) -> Unit, vm: SessionViewModel = hiltViewModel()) {
     val session by vm.session.collectAsStateWithLifecycle()
     val turns by vm.turns.collectAsStateWithLifecycle()
     val ended = session?.endedAt != null
+    // Keep the screen on while a session is live so the system does not cut the microphone.
+    val view = LocalView.current
+    DisposableEffect(ended) {
+        view.keepScreenOn = !ended
+        onDispose { view.keepScreenOn = false }
+    }
     val context = LocalContext.current
     val hasMicPermission = {
         ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
@@ -68,6 +77,25 @@ fun SessionScreen(onBack: () -> Unit, vm: SessionViewModel = hiltViewModel()) {
     ) { padding ->
         Column(Modifier.padding(padding).fillMaxSize().imePadding()) {
             Transcript(turns, Modifier.weight(1f))
+            val fresher by vm.fresherState.collectAsStateWithLifecycle()
+            FresherStatus(fresher, onDismiss = vm::dismissError)
+            val warning by vm.deviceWarning.collectAsStateWithLifecycle()
+            warning?.let { Text(it, Modifier.padding(horizontal = 16.dp, vertical = 4.dp), color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
+            session?.takeIf { ended }?.let { s ->
+                Card(Modifier.fillMaxWidth().padding(12.dp)) {
+                    Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            when (s.notesStatus) {
+                                "DONE" -> "Notes saved."
+                                "FAILED" -> "Notes could not be generated; they will be retried on next launch."
+                                else -> "Arjun is writing up the notes…"
+                            },
+                            Modifier.weight(1f),
+                        )
+                        s.topicId?.let { tid -> TextButton(onClick = { onOpenTopic(tid) }) { Text("Open notes") } }
+                    }
+                }
+            }
             if (!ended) {
                 val listen by vm.listenState.collectAsStateWithLifecycle()
                 MicBar(listen, onMic = {
@@ -107,6 +135,28 @@ private fun TurnBubble(turn: TurnEntity) {
                 Text(if (fresher) "Arjun (fresher)" else "You", style = MaterialTheme.typography.labelMedium)
                 Text(turn.text, style = MaterialTheme.typography.bodyLarge)
             }
+        }
+    }
+}
+
+@Composable
+private fun FresherStatus(state: FresherState, onDismiss: () -> Unit) {
+    val text = when (state) {
+        FresherState.Idle, FresherState.WrappedUp -> return
+        FresherState.Summarizing -> "Arjun is reviewing his notes so far…"
+        is FresherState.Thinking -> if (state.partial.isBlank()) "Arjun is thinking…" else "Arjun: ${state.partial}"
+        is FresherState.Speaking -> "Arjun is asking…"
+        is FresherState.Error -> state.message
+    }
+    Card(
+        Modifier.fillMaxWidth().padding(horizontal = 12.dp).testTag("fresherStatus"),
+        colors = CardDefaults.cardColors(
+            containerColor = if (state is FresherState.Error) MaterialTheme.colorScheme.errorContainer else MaterialTheme.colorScheme.surfaceVariant,
+        ),
+    ) {
+        Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text(text, Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
+            if (state is FresherState.Error) TextButton(onClick = onDismiss) { Text("OK") }
         }
     }
 }

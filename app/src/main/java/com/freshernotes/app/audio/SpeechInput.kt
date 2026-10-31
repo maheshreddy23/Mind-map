@@ -1,5 +1,6 @@
 package com.freshernotes.app.audio
 
+import com.freshernotes.app.device.PerfStats
 import com.freshernotes.app.engine.Engines
 import com.freshernotes.core.audio.Endpointer
 import com.freshernotes.core.audio.Framer
@@ -30,6 +31,7 @@ sealed interface ListenState {
 class SpeechInput @Inject constructor(
     private val recorder: AudioRecorder,
     private val engines: Engines,
+    private val perf: PerfStats,
 ) {
     private val _state = MutableStateFlow<ListenState>(ListenState.Idle)
     val state: StateFlow<ListenState> = _state.asStateFlow()
@@ -105,7 +107,10 @@ class SpeechInput @Inject constructor(
                 val previous = _state.value
                 _state.value = ListenState.Transcribing
                 try {
-                    val text = engines.whisper().transcribe(audio, prompt = DOMAIN_PROMPT)
+                    val engine = engines.whisper()
+                    val t0 = System.nanoTime()
+                    val text = engine.transcribe(audio, prompt = DOMAIN_PROMPT)
+                    perf.recordStt(audio.size / 16_000.0, (System.nanoTime() - t0) / 1e9)
                     if (TranscriptFilter.isMeaningful(text)) _transcripts.emit(TranscriptFilter.clean(text))
                     _state.value = if (isRecording()) previous else ListenState.Idle
                 } catch (e: kotlinx.coroutines.CancellationException) {
