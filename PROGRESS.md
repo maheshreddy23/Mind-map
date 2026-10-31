@@ -49,6 +49,70 @@ Tests:
 - `EndpointerTest` (6) and `TranscriptFilterTest` (4) on the JVM. They pass locally and caught a real bug: after a forced cut at the 28 s cap, the noise floor reset to the speaker's own voice level and the rest of the speech was lost.
 - `StreamingPipelineTest` (instrumented): `jfk.wav` padded with silence is fed frame by frame through the Silero and the energy VAD into whisper.
 
+## Phase 4: llama.cpp
+Built:
+- `third_party/llama.cpp` submodule pinned to b12021, built statically and CPU-only (no OpenSSL or networking).
+- `llama_jni.cpp`: load, streaming generation through a `TokenCallback` with UTF-8-safe chunking, abort, token counting, the model's chat template, and runtime thread count.
+- Prefix KV cache: the tokens already in the cache are remembered, and each call decodes only the part of the prompt that changed (the persona and earlier turns are reused). This is what keeps time-to-first-token low as a conversation grows.
+- `LlamaEngine`: a cancellable `Flow<String>` of chunks; cancelling the flow aborts native generation.
+- `:core` `PromptFormat` (ChatML, Gemma, Llama 3, Phi, chosen from the GGUF's template); `Persona` (the spec's system prompt, "wrap up" detection, reply cleanup that keeps one question and caps length).
+
+Tests:
+- `PromptTest` (JVM, 6).
+- `LlamaEngineTest` (instrumented, Qwen2.5-0.5B): ChatML detected; the persona returns a streamed question of 40 words or fewer; cancelling a stream leaves the engine usable; prefix-cached follow-up timing is logged.
+
+## Phase 5: text-to-speech
+Built:
+- `:tts` module. The prebuilt sherpa-onnx v1.13.8 Android libraries are downloaded once at build time by `fetchSherpaOnnx` and are never fetched at runtime. Its `Tts.kt` binding is vendored unchanged from the same tag (Apache-2.0).
+- `PiperSynthesizer`: a VITS/Piper voice folder (`.onnx`, `tokens.txt`, `espeak-ng-data/`), synthesized sentence by sentence so speech starts early, played through `AudioTrack`.
+- `SystemSynthesizer`: the Android `TextToSpeech` fallback. `Engines` falls back to it automatically if no Piper voice is installed or the voice fails to load.
+
+Tests:
+- `PiperSynthesizerTest` (instrumented): synthesizes a question with `vits-piper-en_US-amy-low` and checks the sample rate, duration and that the output is not silent; also tests sentence splitting.
+
+## Phase 6: conversation loop and context management
+Built:
+- `ConversationController`: each senior turn is saved immediately → `QuestionPolicy` (every N turns, or "wrap up") → `ContextManager` builds the prompt → if it uses more than 70% of the context, the older turns are summarized into `sessions.runningSummary` → streamed question → saved → spoken with the mic muted.
+- `ContextManager` keeps at least the 6 most recent turns verbatim and folds at least half of the unsummarized turns each time, so summarization does not run again on every turn. It merges consecutive same-role turns for chat templates.
+- Session screen: streamed "Arjun is thinking…" text, speaking and summarizing states, and error messages (for example a missing model, with a pointer to Settings).
+
+Tests:
+- `ContextManagerTest` (JVM, 6) with a fake model: role mapping, merging, the 70% threshold, which turns get folded, the previous summary carried forward, and the question cadence.
+- `ConversationLoopTest` (instrumented, real Qwen2.5-0.5B, captured TTS): a senior turn produces a saved and spoken question of 40 words or fewer; "let's wrap up" ends the session without a new question.
+
+## Phase 7: notes, topics, search, export
+Built:
+- `NotePrompts` / `NoteParser`: the spec's sections (topic and sub-topics, key concepts, procedures, rationale, pitfalls, open questions). The parser tolerates heading variants, `**bold**` headings, numbering and "none".
+- `TopicMatcher` (word-set Jaccard similarity with light stemming and stop words) merges "Drill jig" into "Drill Jigs and Fixtures". `TopicPageMerger` adds only new bullets, keeps sections the user added by hand, unions sub-topics, keeps a session log, and is idempotent.
+- `NoteGenerator`: the session is marked PENDING when it ends, so generation resumes on next launch if the app is killed. It uses the full transcript, or the running summary plus later turns when the transcript does not fit.
+- `SearchIndex`: SQLite **FTS5** (porter + unicode61, bm25 with title weighted ×3, snippets) over topic pages and session transcripts. Android's built-in SQLite does not include FTS5, so this uses `androidx.sqlite:sqlite-bundled`.
+- `MarkdownExporter`: writes `Documents/FresherNotes/<slug>.md` through MediaStore (no storage permission needed); it runs automatically after each merge and from the Notes screen.
+- Room v2 with a hand-written `MIGRATION_1_2` (session notes status and Markdown, topic link).
+
+Tests:
+- `NotesTest` (JVM, 5).
+- `NotesPipelineTest` (instrumented): FTS5 prefix search, ranking, re-indexing and injection-safe queries; the full wrap-up → notes → merge into an existing similar topic → search → export round trip.
+
+## Phase 8: polish
+Built:
+- `DeviceMonitor` + `PerformancePolicy`: thermal status listener, battery saver and battery level. Moderate heat → 2 fewer LLM threads; severe → half the threads and push-to-talk only; critical → the LLM pauses (transcription and saving continue). Low battery while not charging → throttled, push-to-talk only.
+- `PerfStats`: live speech-to-text real-time factor and LLM first-token time and tokens per second, shown in Settings, plus a **Benchmark the LLM** button for checking the < 2 s target on the device.
+- The screen stays on during a live session; native models are released on `onTrimMemory` when memory is critical.
+- Error states: missing model (banner on Home, message in Session), notes failed (retried on launch), microphone and permission errors, and a "too hot" pause.
+- README covers model downloads (with licence notes), install and usage.
+- CI builds the release APK and fails if `aapt2 dump permissions` shows `INTERNET`.
+
+Tests:
+- `PerformancePolicyTest` (JVM, 4).
+
+# Known limitations
+- **Performance targets are not measured by CI.** GitHub's x86_64 emulator says nothing about a Snapdragon 8 Gen 3. Use Settings → Benchmark the LLM and the live speech-to-text real-time factor on the phone. [Likely] base.en runs well faster than real time and Qwen2.5-3B Q4_K_M reaches its first token in under 2 s for a typical turn with a warm cache. The first turn of a session (cold cache plus model load) can exceed 2 s.
+- **Model licences:** the spec's Qwen2.5-3B (Qwen Research License) and Gemma (Gemma Terms) are not MIT/Apache. Phi-4-mini (MIT) and Qwen2.5-1.5B (Apache-2.0) are supported, permissively licensed alternatives.
+- **Android TTS fallback:** this is only offline if an offline voice is installed on the phone.
+- **No GPU or NPU acceleration:** whisper, llama and sherpa run on the CPU only. The Adreno GPU (Vulkan/OpenCL) and the Hexagon NPU are unused.
+- **Notes quality depends on the LLM:** a 3B model can drop details from long sessions, because it sees the running summary rather than the full transcript.
+- **Small-model output in CI:** the 0.5B stand-in model is only asserted to produce a question-shaped reply, not a good one.
+
 # Assumptions and decisions
 - **Push and CI:** GitHub refused this session's push (HTTP 403, Claude GitHub App not authorized), and Google Maven and the SDK downloads (`dl.google.com`) are blocked here. Phases are therefore committed locally and checked only as far as this container allows: `:core` JVM tests and host builds of the native code. The Android build and the emulator tests run only in CI, which has not run yet.
 - **Test models on the emulator:** instrumented tests read models from `/data/local/tmp/models` by streaming them through `UiAutomation.executeShellCommand("cat ...")`, because apps cannot open that directory directly.
@@ -56,3 +120,7 @@ Tests:
 - **Release signing:** release builds are signed with the debug key so the APK installs for personal use. There is no Play Store distribution.
 - **VAD:** Silero (via whisper.cpp) is optional because it is a separate model file; the energy VAD covers the case where it is missing.
 - **Push-to-talk is tap-to-toggle,** not press-and-hold, because holding the button through a long explanation is tiring.
+- **Phases 4–7 were developed together** while push access was blocked and the first CI runs were pending. They were pushed after Phases 1–3 went green, so they share one CI run rather than one each.
+- **Topic matching** uses word-set similarity, not embeddings, so it is deterministic and offline with no extra model. Synonyms ("PLM" vs "product lifecycle management") are not merged.
+- **Notes generation** runs in an application-scoped coroutine, not WorkManager. It is resumed on launch from the PENDING/FAILED status in Room.
+- **Push-to-talk ignores taps shorter than 0.3 s.** Whisper also gets a domain prompt (CATIA, NX, Teamcenter, …) to improve jargon recognition.

@@ -67,6 +67,8 @@ ksp {
 dependencies {
     implementation(project(":core"))
     implementation(project(":whisper"))
+    implementation(project(":llama"))
+    implementation(project(":tts"))
 
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.activity.compose)
@@ -83,6 +85,7 @@ dependencies {
 
     implementation(libs.androidx.datastore.preferences)
     implementation(libs.androidx.documentfile)
+    implementation(libs.androidx.sqlite.bundled)
     implementation(libs.androidx.room.runtime)
     implementation(libs.androidx.room.ktx)
     ksp(libs.androidx.room.compiler)

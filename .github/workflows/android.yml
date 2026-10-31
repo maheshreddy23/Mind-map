@@ -38,6 +38,15 @@ jobs:
       - name: Build debug APK and run unit tests
         run: ./gradlew assembleDebug testDebugUnitTest :core:test --stacktrace
 
+      - name: Build release APK and verify it cannot reach the network
+        run: |
+          ./gradlew assembleRelease --stacktrace
+          APK=app/build/outputs/apk/release/app-release.apk
+          "$ANDROID_HOME/build-tools/35.0.0/aapt2" dump permissions "$APK" | tee permissions.txt
+          if grep -q "android.permission.INTERNET" permissions.txt; then
+            echo "::error::Release APK declares INTERNET"; exit 1
+          fi
+
       - name: Upload debug APK
         uses: actions/upload-artifact@v4
         with:
@@ -97,6 +106,7 @@ jobs:
           api-level: 34
           arch: x86_64
           target: google_apis
+          cores: 4
           ram-size: 4096M
           disk-size: 6000M
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none

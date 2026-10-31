@@ -9,6 +9,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Switch
@@ -59,6 +60,21 @@ fun SettingsScreen(
                 steps = 3,
             )
             HorizontalDivider()
+
+            Header("Performance")
+            val perf by vm.perf.collectAsStateWithLifecycle()
+            val bench by vm.benchmark.collectAsStateWithLifecycle()
+            Text(
+                perf.sttRealTimeFactor?.let { "Last transcription: %.2fx real time (%.1f s of audio)".format(it, perf.sttAudioSeconds) }
+                    ?: "Last transcription: not measured yet",
+            )
+            Text(
+                perf.llmFirstTokenMs?.let { ms -> "Last reply: first token in $ms ms" + (perf.llmTokensPerSecond?.let { ", %.1f tokens/s".format(it) } ?: "") }
+                    ?: "Last reply: not measured yet",
+            )
+            OutlinedButton(onClick = vm::runLlmBenchmark, modifier = Modifier.padding(top = 8.dp)) { Text("Benchmark the LLM") }
+            bench?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
+            HorizontalDivider(Modifier.padding(top = 8.dp))
 
             Header("Listening")
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
