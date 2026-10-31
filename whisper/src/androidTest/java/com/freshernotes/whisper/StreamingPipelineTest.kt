@@ -55,7 +55,7 @@ class StreamingPipelineTest {
 
     /**
      * Checks the contract the Endpointer relies on (start threshold 0.5, end threshold 0.35):
-     * room-level noise never starts speech, most speech frames do, and silence right after speech
+     * room-level noise never starts speech, real speech does (8+ consecutive frames >= 0.5), and silence right after speech
      * falls below the end threshold so utterances terminate.
      * Note: from a freshly reset state Silero maps exact digital zeros to a fixed ~0.45, which is
      * below the start threshold; real microphones never deliver exact zeros, so noise is used here.
@@ -71,8 +71,11 @@ class StreamingPipelineTest {
             assertTrue("noise would start speech: max ${quiet.max()}", quiet.all { it < 0.5f })
 
             val speechProbs = (0 until speech.size / 512).map { i -> vad.speechProbability(speech.copyOfRange(i * 512, i * 512 + 512)) }
-            val voiced = speechProbs.count { it > 0.5f }.toFloat() / speechProbs.size
-            assertTrue("only ${voiced * 100}% of JFK frames scored as speech", voiced > 0.5f)
+            // The Endpointer starts an utterance after 250 ms (8 frames of 32 ms) at or above 0.5.
+            var run = 0
+            var longest = 0
+            for (p in speechProbs) { run = if (p >= 0.5f) run + 1 else 0; longest = maxOf(longest, run) }
+            assertTrue("speech never held >= 0.5 for 250 ms (longest run $longest frames)", longest >= 8)
 
             val after = (0 until 32).map { vad.speechProbability(noise()) }
             assertTrue("silence after speech never fell below the end threshold: ${after.takeLast(8)}", after.takeLast(8).all { it < 0.35f })
