@@ -53,19 +53,29 @@ class StreamingPipelineTest {
         assertTrue("unexpected transcript: $texts", all.contains("country"))
     }
 
+    /**
+     * Checks the contract the Endpointer relies on (start threshold 0.5, end threshold 0.35):
+     * room-level noise never starts speech, most speech frames do, and silence right after speech
+     * falls below the end threshold so utterances terminate.
+     * Note: from a freshly reset state Silero maps exact digital zeros to a fixed ~0.45, which is
+     * below the start threshold; real microphones never deliver exact zeros, so noise is used here.
+     */
     @Test
-    fun sileroVadSeparatesSilenceFromSpeech() {
+    fun sileroVadMeetsEndpointerThresholds() {
         val ctx = InstrumentationRegistry.getInstrumentation().context
         val speech = ctx.assets.open("jfk.wav").use { Wav.toWhisperInput(it.readBytes()) }
+        val rng = java.util.Random(7)
+        fun noise() = FloatArray(512) { (rng.nextGaussian() * 0.001).toFloat() } // about -60 dBFS
         SileroVad.load(TestModels.copy("ggml-silero-v5.1.2.bin")).use { vad ->
-            // A recurrent VAD needs a few windows of context: the first window after a reset is uninformed (~0.45),
-            // which is why the Endpointer requires 250 ms of consecutive speech before triggering.
-            val silenceProbs = (0 until 32).map { vad.speechProbability(FloatArray(512)) }
-            assertTrue("silence after warm-up scored ${silenceProbs.takeLast(8)}", silenceProbs.takeLast(8).all { it < 0.3f })
-            vad.reset()
+            val quiet = (0 until 32).map { vad.speechProbability(noise()) }
+            assertTrue("noise would start speech: max ${quiet.max()}", quiet.all { it < 0.5f })
+
             val speechProbs = (0 until speech.size / 512).map { i -> vad.speechProbability(speech.copyOfRange(i * 512, i * 512 + 512)) }
             val voiced = speechProbs.count { it > 0.5f }.toFloat() / speechProbs.size
             assertTrue("only ${voiced * 100}% of JFK frames scored as speech", voiced > 0.5f)
+
+            val after = (0 until 32).map { vad.speechProbability(noise()) }
+            assertTrue("silence after speech never fell below the end threshold: ${after.takeLast(8)}", after.takeLast(8).all { it < 0.35f })
         }
     }
 }
