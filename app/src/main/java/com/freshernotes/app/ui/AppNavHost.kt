@@ -7,6 +7,7 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.freshernotes.app.ui.home.HomeScreen
+import com.freshernotes.app.ui.models.ModelSection
 import com.freshernotes.app.ui.notes.NotesScreen
 import com.freshernotes.app.ui.session.SessionScreen
 import com.freshernotes.app.ui.settings.SettingsScreen
@@ -38,7 +39,7 @@ fun AppNavHost() {
             NotesScreen(onBack = { nav.popBackStack() })
         }
         composable(Routes.SETTINGS) {
-            SettingsScreen(onBack = { nav.popBackStack() })
+            SettingsScreen(onBack = { nav.popBackStack() }, modelSection = { ModelSection() })
         }
     }
 }

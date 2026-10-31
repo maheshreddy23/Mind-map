@@ -1,5 +1,9 @@
 package com.freshernotes.app.ui.session
 
+import android.Manifest
+import android.content.pm.PackageManager
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -12,7 +16,12 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
-import androidx.compose.material3.Button
+import androidx.compose.material.icons.filled.Mic
+import androidx.compose.material.icons.filled.Stop
+import androidx.compose.material3.LargeFloatingActionButton
+import androidx.compose.ui.platform.LocalContext
+import androidx.core.content.ContextCompat
+import com.freshernotes.app.audio.ListenState
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
@@ -43,6 +52,13 @@ fun SessionScreen(onBack: () -> Unit, vm: SessionViewModel = hiltViewModel()) {
     val session by vm.session.collectAsStateWithLifecycle()
     val turns by vm.turns.collectAsStateWithLifecycle()
     val ended = session?.endedAt != null
+    val context = LocalContext.current
+    val hasMicPermission = {
+        ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
+    }
+    val requestMic = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        if (granted) vm.toggleMic()
+    }
     Scaffold(
         topBar = {
             BackTopBar(session?.title ?: "Session", onBack) {
@@ -52,7 +68,13 @@ fun SessionScreen(onBack: () -> Unit, vm: SessionViewModel = hiltViewModel()) {
     ) { padding ->
         Column(Modifier.padding(padding).fillMaxSize().imePadding()) {
             Transcript(turns, Modifier.weight(1f))
-            if (!ended) TypedInput(onSend = vm::submitText)
+            if (!ended) {
+                val listen by vm.listenState.collectAsStateWithLifecycle()
+                MicBar(listen, onMic = {
+                    if (hasMicPermission()) vm.toggleMic() else requestMic.launch(Manifest.permission.RECORD_AUDIO)
+                })
+                TypedInput(onSend = vm::submitText)
+            }
         }
     }
 }
@@ -85,6 +107,34 @@ private fun TurnBubble(turn: TurnEntity) {
                 Text(if (fresher) "Arjun (fresher)" else "You", style = MaterialTheme.typography.labelMedium)
                 Text(turn.text, style = MaterialTheme.typography.bodyLarge)
             }
+        }
+    }
+}
+
+@Composable
+private fun MicBar(state: ListenState, onMic: () -> Unit) {
+    val recording = state is ListenState.Listening
+    Column(Modifier.fillMaxWidth().padding(8.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+        Text(
+            when (state) {
+                ListenState.Idle -> "Tap the mic and explain something"
+                is ListenState.Listening -> when {
+                    !state.continuous -> "Listening… tap again when done"
+                    state.hearingSpeech -> "Hearing you…"
+                    else -> "Listening (continuous)"
+                }
+                ListenState.Transcribing -> "Transcribing…"
+                is ListenState.Error -> state.message
+            },
+            style = MaterialTheme.typography.bodyMedium,
+            color = if (state is ListenState.Error) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        LargeFloatingActionButton(
+            onClick = onMic,
+            containerColor = if (recording) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primaryContainer,
+            modifier = Modifier.padding(top = 8.dp).testTag("mic"),
+        ) {
+            Icon(if (recording) Icons.Default.Stop else Icons.Default.Mic, contentDescription = if (recording) "Stop" else "Speak")
         }
     }
 }
