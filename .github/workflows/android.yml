@@ -28,9 +28,10 @@ jobs:
           java-version: "17"
 
       - uses: android-actions/setup-android@v3
-
-      - name: Install NDK and CMake
-        run: sdkmanager --install "ndk;${NDK_VERSION}" "cmake;${CMAKE_VERSION}" > /dev/null
+        with:
+          # The default ("tools") no longer exists in the SDK repository.
+          packages: "platform-tools platforms;android-35 build-tools;35.0.0 ndk;${{ env.NDK_VERSION }} cmake;${{ env.CMAKE_VERSION }}"
+          log-accepted-android-sdk-licenses: false
 
       - uses: gradle/actions/setup-gradle@v4
 
@@ -65,9 +66,10 @@ jobs:
           java-version: "17"
 
       - uses: android-actions/setup-android@v3
-
-      - name: Install NDK and CMake
-        run: sdkmanager --install "ndk;${NDK_VERSION}" "cmake;${CMAKE_VERSION}" > /dev/null
+        with:
+          # The default ("tools") no longer exists in the SDK repository.
+          packages: "platform-tools platforms;android-35 build-tools;35.0.0 ndk;${{ env.NDK_VERSION }} cmake;${{ env.CMAKE_VERSION }}"
+          log-accepted-android-sdk-licenses: false
 
       - uses: gradle/actions/setup-gradle@v4
 
