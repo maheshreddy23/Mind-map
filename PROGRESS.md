@@ -138,7 +138,7 @@ Tests:
 - **Push and CI:** GitHub refused this session's push (HTTP 403, Claude GitHub App not authorized), and Google Maven and the SDK downloads (`dl.google.com`) are blocked here. Phases are therefore committed locally and checked only as far as this container allows: `:core` JVM tests and host builds of the native code. The Android build and the emulator tests run only in CI, which has not run yet.
 - **Test models on the emulator:** instrumented tests read models from `/data/local/tmp/models` by streaming them through `UiAutomation.executeShellCommand("cat ...")`, because apps cannot open that directory directly.
 - **One ggml copy per engine:** whisper.cpp and llama.cpp each live in their own Gradle module and `.so` file, each with its own static ggml. This avoids CMake target name clashes and symbol interposition between the two.
-- **Release signing:** release builds are signed with the debug key so the APK installs for personal use. There is no Play Store distribution.
+- **Signing:** builds are signed with a fixed key restored in CI from the `DEBUG_KEYSTORE_B64` secret, and CI checks both APKs' certificates against it. The key is never committed. Without the secret, CI falls back to a random per-run debug key and shows a warning (updates then need an uninstall).
 - **VAD:** Silero (via whisper.cpp) is optional because it is a separate model file; the energy VAD covers the case where it is missing.
 - **Push-to-talk is tap-to-toggle,** not press-and-hold, because holding the button through a long explanation is tiring.
 - **Phases 4–7 were developed together** while push access was blocked and the first CI runs were pending. They were pushed after Phases 1–3 went green, so they share one CI run rather than one each.

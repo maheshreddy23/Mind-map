@@ -33,6 +33,14 @@ jobs:
           packages: "platform-tools platforms;android-35 build-tools;35.0.0 ndk;${{ env.NDK_VERSION }} cmake;${{ env.CMAKE_VERSION }}"
           log-accepted-android-sdk-licenses: false
 
+      - name: Restore fixed signing key
+        env:
+          DEBUG_KEYSTORE_B64: ${{ secrets.DEBUG_KEYSTORE_B64 }}
+        run: |
+          if [ -n "$DEBUG_KEYSTORE_B64" ]; then
+            mkdir -p keystore && echo "$DEBUG_KEYSTORE_B64" | base64 -d > keystore/debug.keystore
+          fi
+
       - uses: gradle/actions/setup-gradle@v4
 
       - name: Build debug APK and run unit tests
@@ -46,6 +54,21 @@ jobs:
           if grep -q "android.permission.INTERNET" permissions.txt; then
             echo "::error::Release APK declares INTERNET"; exit 1
           fi
+
+      - name: Verify APKs are signed with the fixed key (so updates install over each other)
+        env:
+          HAS_KEY: ${{ secrets.DEBUG_KEYSTORE_B64 != '' }}
+        run: |
+          if [ "$HAS_KEY" != "true" ]; then
+            echo "::warning::DEBUG_KEYSTORE_B64 is not set: this APK uses a random per-run key and will not install over earlier builds."
+            exit 0
+          fi
+          EXPECTED=$(keytool -exportcert -keystore keystore/debug.keystore -storepass android -alias androiddebugkey 2>/dev/null | sha256sum | cut -d' ' -f1)
+          for APK in app/build/outputs/apk/debug/app-debug.apk app/build/outputs/apk/release/app-release.apk; do
+            ACTUAL=$("$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --print-certs "$APK" | grep -m1 "certificate SHA-256 digest" | awk '{print $NF}')
+            echo "$APK -> $ACTUAL"
+            if [ "$ACTUAL" != "$EXPECTED" ]; then echo "::error::$APK is not signed with the DEBUG_KEYSTORE_B64 key"; exit 1; fi
+          done
 
       - name: Upload debug APK
         uses: actions/upload-artifact@v4
@@ -79,6 +102,14 @@ jobs:
           # The default ("tools") no longer exists in the SDK repository.
           packages: "platform-tools platforms;android-35 build-tools;35.0.0 ndk;${{ env.NDK_VERSION }} cmake;${{ env.CMAKE_VERSION }}"
           log-accepted-android-sdk-licenses: false
+
+      - name: Restore fixed signing key
+        env:
+          DEBUG_KEYSTORE_B64: ${{ secrets.DEBUG_KEYSTORE_B64 }}
+        run: |
+          if [ -n "$DEBUG_KEYSTORE_B64" ]; then
+            mkdir -p keystore && echo "$DEBUG_KEYSTORE_B64" | base64 -d > keystore/debug.keystore
+          fi
 
       - uses: gradle/actions/setup-gradle@v4
 

@@ -72,6 +72,20 @@ adb install -r app/build/outputs/apk/release/app-release.apk
 Build requirements: JDK 17, Android SDK 35, NDK 27.2.12479018, CMake 3.22.1. The sherpa-onnx prebuilt
 libraries are downloaded once at build time (`:tts:fetchSherpaOnnx`).
 
+**Updates:** CI signs every APK with one fixed key held in the `DEBUG_KEYSTORE_B64` repository secret,
+so a new APK installs over the old one and keeps your models and notes. Without that secret each CI run
+uses a random key (CI shows a warning) and updating needs an uninstall. To set it up once:
+
+```bash
+keytool -genkeypair -keystore debug.keystore -storetype PKCS12 -storepass android -keypass android -alias androiddebugkey -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Fresher Notes Debug"
+```
+
+```bash
+base64 -w0 debug.keystore | gh secret set DEBUG_KEYSTORE_B64 --repo maheshreddy23/Mind-map
+```
+
+Keep `debug.keystore` somewhere safe; it is never committed (`*.keystore` is git-ignored).
+
 ## 3. Use
 
 1. **Settings → Models**: pick the whisper model and the GGUF (plus the optional VAD and Piper voice).

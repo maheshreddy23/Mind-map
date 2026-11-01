@@ -28,6 +28,21 @@ android {
         }
     }
 
+    // Fixed signing key so consecutive builds install as updates. Each CI runner would otherwise generate a
+    // random ~/.android/debug.keystore. The key is never committed: CI writes it from the DEBUG_KEYSTORE_B64
+    // secret (see .github/workflows/android.yml); without it, the default debug key is used.
+    val fixedKeystore = rootProject.file("keystore/debug.keystore")
+    if (fixedKeystore.isFile) {
+        signingConfigs {
+            getByName("debug") {
+                storeFile = fixedKeystore
+                storePassword = providers.environmentVariable("DEBUG_KEYSTORE_PASSWORD").orElse("android").get()
+                keyAlias = providers.environmentVariable("DEBUG_KEY_ALIAS").orElse("androiddebugkey").get()
+                keyPassword = providers.environmentVariable("DEBUG_KEYSTORE_PASSWORD").orElse("android").get()
+            }
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = false
