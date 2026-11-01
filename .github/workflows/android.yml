@@ -1,0 +1,154 @@
+name: Android CI
+
+on:
+  push:
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  NDK_VERSION: "27.2.12479018"
+  CMAKE_VERSION: "3.22.1"
+
+jobs:
+  build:
+    name: Build and unit tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: android-actions/setup-android@v3
+        with:
+          # The default ("tools") no longer exists in the SDK repository.
+          packages: "platform-tools platforms;android-35 build-tools;35.0.0 ndk;${{ env.NDK_VERSION }} cmake;${{ env.CMAKE_VERSION }}"
+          log-accepted-android-sdk-licenses: false
+
+      - name: Restore fixed signing key
+        env:
+          DEBUG_KEYSTORE_B64: ${{ secrets.DEBUG_KEYSTORE_B64 }}
+        run: |
+          if [ -n "$DEBUG_KEYSTORE_B64" ]; then
+            mkdir -p keystore && echo "$DEBUG_KEYSTORE_B64" | base64 -d > keystore/debug.keystore
+          fi
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Build debug APK and run unit tests
+        run: ./gradlew assembleDebug testDebugUnitTest :core:test --stacktrace
+
+      - name: Build release APK and verify it cannot reach the network
+        run: |
+          ./gradlew assembleRelease --stacktrace
+          APK=app/build/outputs/apk/release/app-release.apk
+          "$ANDROID_HOME/build-tools/35.0.0/aapt2" dump permissions "$APK" | tee permissions.txt
+          if grep -q "android.permission.INTERNET" permissions.txt; then
+            echo "::error::Release APK declares INTERNET"; exit 1
+          fi
+
+      - name: Verify APKs are signed with the fixed key (so updates install over each other)
+        env:
+          HAS_KEY: ${{ secrets.DEBUG_KEYSTORE_B64 != '' }}
+        run: |
+          if [ "$HAS_KEY" != "true" ]; then
+            echo "::warning::DEBUG_KEYSTORE_B64 is not set: this APK uses a random per-run key and will not install over earlier builds."
+            exit 0
+          fi
+          EXPECTED=$(keytool -exportcert -keystore keystore/debug.keystore -storepass android -alias androiddebugkey 2>/dev/null | sha256sum | cut -d' ' -f1)
+          for APK in app/build/outputs/apk/debug/app-debug.apk app/build/outputs/apk/release/app-release.apk; do
+            ACTUAL=$("$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --print-certs "$APK" | grep -m1 "certificate SHA-256 digest" | awk '{print $NF}')
+            echo "$APK -> $ACTUAL"
+            if [ "$ACTUAL" != "$EXPECTED" ]; then echo "::error::$APK is not signed with the DEBUG_KEYSTORE_B64 key"; exit 1; fi
+          done
+
+      - name: Upload debug APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-debug
+          path: app/build/outputs/apk/debug/app-debug.apk
+
+      - name: Upload unit test reports
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: unit-test-reports
+          path: "**/build/reports/tests/"
+
+  instrumented:
+    name: Instrumented tests (API 34, x86_64)
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: android-actions/setup-android@v3
+        with:
+          # The default ("tools") no longer exists in the SDK repository.
+          packages: "platform-tools platforms;android-35 build-tools;35.0.0 ndk;${{ env.NDK_VERSION }} cmake;${{ env.CMAKE_VERSION }}"
+          log-accepted-android-sdk-licenses: false
+
+      - name: Restore fixed signing key
+        env:
+          DEBUG_KEYSTORE_B64: ${{ secrets.DEBUG_KEYSTORE_B64 }}
+        run: |
+          if [ -n "$DEBUG_KEYSTORE_B64" ]; then
+            mkdir -p keystore && echo "$DEBUG_KEYSTORE_B64" | base64 -d > keystore/debug.keystore
+          fi
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Cache test models
+        uses: actions/cache@v4
+        with:
+          path: test-models
+          key: test-models-${{ hashFiles('scripts/download-test-models.sh') }}
+
+      - name: Download test models
+        run: scripts/download-test-models.sh test-models
+
+      - name: Build test APKs (x86_64 included)
+        run: ./gradlew -PwithX86_64 assembleDebug assembleDebugAndroidTest --stacktrace
+
+      - name: Run instrumented tests
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 34
+          arch: x86_64
+          target: google_apis
+          cores: 4
+          ram-size: 4096M
+          disk-size: 6000M
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
+          disable-animations: true
+          script: |
+            scripts/push-test-models.sh test-models
+            ./gradlew -PwithX86_64 connectedDebugAndroidTest --stacktrace
+
+      - name: Upload instrumented test reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: instrumented-test-reports
+          path: "**/build/reports/androidTests/"
