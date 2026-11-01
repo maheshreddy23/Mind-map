@@ -4,7 +4,7 @@
 
 | Phase | Scope | Status |
 |---|---|---|
-| 1 | Data model and filing: subjects, topics, entries, types, privacy, Inbox, delete and regenerate, no "General" | In review (CI) |
+| 1 | Data model and filing: subjects, topics, entries, types, privacy, Inbox, delete and regenerate, no "General" | CI green; phone-tested |
 | 2 | Butler persona, onboarding, modes; in-app model downloader + Full/Sealed flavours | Not started |
 | 3 | Ask the library: embeddings, semantic search, cited answers | Not started |
 | 4 | Nudges | Not started |
@@ -27,6 +27,11 @@ Built:
 Tests:
 - JVM (`:core`): `FilingTest` (11), `LegacyAndPageTest` (5), `LegacyPlannerTest` (1); all pass locally.
 - Instrumented: `MigrationTest` (3: real v1 data through `MigrationTestHelper` with schema validation, empty DB, full chain), `LibraryTest` (7: filing with a scripted model, Inbox, move/split/merge/rename/delete, junk-session delete, FTS5, export), `DatabaseTest` (1). Emulator tests run in CI only (no KVM in the dev container).
+
+Phone test (OnePlus 13R, 1 Nov 2026): installed over v1 with data intact. Step 5 (a real session with Qwen2.5-3B) gave 2 entries, both sent to the Inbox, none auto-filed. Rejecting one worked, and so did moving the other to a new subject and topic.
+
+To tune later (not yet fixed):
+- **Filing may be over-cautious (0 of 2 auto-filed).** The likely cause is the rule, not the model: an entry auto-files only when its proposed subject *and* topic already exist and are confirmed, and straight after migration most topics are unassigned or in the Inbox. Check this with a second session on a topic that now exists. If that still lands in the Inbox, look at `FilingPolicy` (the model's CONFIDENCE line, the 0.75 name-match threshold, and topics without a subject that cannot match).
 
 Known limitations:
 - Filing quality depends on the model; Qwen2.5-0.5B (CI) does not follow the entry format reliably, which is why filing is tested with a scripted model. Expect more Inbox items with 3B than with a larger model.
