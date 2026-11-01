@@ -34,23 +34,36 @@ class ModelIntegrityTest {
         assertEquals(OfficialChecksums.Verdict.MATCHES_OFFICIAL, result.verdict)
     }
 
-    @Test
-    fun zeroFilledHoleIsDetectedAndExplained() = runBlocking {
-        model.delete()
-        TestModels.copyTo("ggml-tiny.en.bin", model)
+    private fun punchHole(atFraction: Double) {
         val size = model.length()
         RandomAccessFile(model, "rw").use { raf ->
-            raf.seek(size / 2)
+            raf.seek((size * atFraction).toLong())
             raf.write(ByteArray(2 shl 20))
         }
         assertEquals(size, model.length())
+    }
 
-        val result = ModelStore(context).verify(ModelKind.WHISPER)
-        assertEquals(OfficialChecksums.Verdict.DIFFERS_FROM_OFFICIAL, result.verdict)
-
+    /** A hole over tensor headers: reproduces the device error and must carry the re-download hint. */
+    @Test
+    fun holeOverTensorHeadersFailsWithHint() = runBlocking {
+        model.delete()
+        TestModels.copyTo("ggml-tiny.en.bin", model)
+        punchHole(0.8) // verified on host: "unknown tensor '' in model file"
+        assertEquals(OfficialChecksums.Verdict.DIFFERS_FROM_OFFICIAL, ModelStore(context).verify(ModelKind.WHISPER).verdict)
         val error = runCatching { WhisperEngine.load(model) }.exceptionOrNull()
         assertNotNull("damaged model must not load", error)
-        assertNotNull("no damaged-file hint for: ${error!!.message}", OfficialChecksums.loadFailureHint(error.message!!))
+        assertTrue(error!!.message!!, error.message!!.contains("unknown tensor"))
+        assertNotNull(OfficialChecksums.loadFailureHint(error.message!!))
+        model.delete()
+    }
+
+    /** A hole inside one tensor's data loads without error (silent corruption): only the checksum catches it. */
+    @Test
+    fun holeInsideTensorDataIsCaughtOnlyByChecksum() = runBlocking {
+        model.delete()
+        TestModels.copyTo("ggml-tiny.en.bin", model)
+        punchHole(0.5) // verified on host: loads successfully despite the damage
+        assertEquals(OfficialChecksums.Verdict.DIFFERS_FROM_OFFICIAL, ModelStore(context).verify(ModelKind.WHISPER).verdict)
         model.delete()
     }
 }
