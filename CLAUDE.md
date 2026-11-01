@@ -1,7 +1,26 @@
+Product spec
+docs/requirements-v2.md is the current product spec (Mind-map v2: a personal butler that captures, files and answers from a Subject → Topic → Entry library). Where v2 and this file disagree, v2 wins, except for the technical constraints below, which still apply unless the "v2 decisions" section changes them. The original v1 brief (fresher notes) is kept below for history; v1 is built and shipped (see PROGRESS.md).
+
+v2 decisions (requirements-v2 §14, decided 1 Nov 2026)
+1. Models: both options. An in-app downloader (Hugging Face, checksum-verified, shows the size first, Wi-Fi only by default) plus file import (Storage Access Framework). Network is used only for model downloads. A "Sealed" product flavour is built with no INTERNET permission (import only); CI must verify the Sealed release APK has no INTERNET permission. This replaces the v1 rule "remove INTERNET from the release build".
+2. Default butler name "M". Default personality: calm, dry-witted, unflappable, anticipatory, formal but warm, efficient. An original character inspired by that archetype: never named after, or quoting, any film or comic character. Every user creates their own butler in onboarding and can rename it any time.
+3. Interview mode default: a sharp engineer with M.Tech-level fundamentals who is new to the company and its practices. Asks probing why / how / what-if questions, challenges vague answers, still asks for the explanations a newcomer needs. The curious-fresher (Arjun) style stays as an option. The persona sets the style; the model size sets the real depth.
+4. Default privacy level for new entries: Private.
+5. Nudges: daily, with quiet hours.
+
+v2 delivery rules
+• Phases follow requirements-v2 §13, in order, one PR per phase, starting from main. Each phase passes CI and is tested on the phone before the next starts.
+• Updates must install over the existing app with data intact: fixed signing key, Room migrations only (never fallbackToDestructiveMigration), and an instrumented migration test for every schema version bump. Room schemas are exported to app/schemas and committed.
+• Never delete user sessions or turns during a migration. v1 sessions are migrated into Subject → Topic → Entry; anything the migration is unsure about goes to the Inbox.
+• No catch-all "General" subject or topic, anywhere (prompts, parsers, fallbacks).
+• The in-app model downloader and the Full/Sealed flavours land with onboarding (phase 2), because self-serve onboarding is what needs them.
+• Keep the persona and journal as a stable prompt prefix so llama.cpp's prefix KV cache reuses it: the v1 phone baseline is 1848 ms warm first token at 12.4 tok/s, only ~150 ms under the 2 s target.
+
+v1 brief (history)
 Goal
 A fully offline Android app for a OnePlus 13R (Snapdragon 8 Gen 3, 12 GB+ RAM, Android 15). The user talks out loud about what he has learned over 3–4 years as an aerospace engineer (jigs and fixtures, PLM, CATIA, NX, Teamcenter, and so on). The AI plays a curious fresher who just joined the company: it listens, asks doubts and follow-up questions out loud, and when the session ends it writes detailed, organized notes into a topic-wise knowledge base.
 Hard constraints
-• No network calls at runtime. Remove the INTERNET permission from the release build.
+• No network calls at runtime, except user-initiated model downloads in the Full flavour (v2 decision 1). The Sealed flavour has no INTERNET permission.
 • Only open-source components with permissive licences (MIT or Apache 2.0). No paid APIs or subscriptions.
 • Language: Kotlin with Jetpack Compose. Native code in C++ via the NDK and CMake.
 • Minimum SDK 29, target SDK 35, arm64-v8a only.
