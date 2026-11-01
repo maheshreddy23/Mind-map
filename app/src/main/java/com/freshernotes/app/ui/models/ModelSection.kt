@@ -57,8 +57,8 @@ fun ModelSection(vm: ModelsViewModel = hiltViewModel()) {
                     )
                     integrity[kind]?.takeIf { file != null && it.fileName == file.name }?.let { i ->
                         val (label, bad) = when (i.verdict) {
-                            OfficialChecksums.Verdict.MATCHES_OFFICIAL -> "✓ SHA-256 matches the official file" to false
-                            OfficialChecksums.Verdict.DIFFERS_FROM_OFFICIAL -> "✗ SHA-256 does NOT match the official file — damaged, download again" to true
+                            OfficialChecksums.Verdict.MATCHES_OFFICIAL -> "✓ SHA-256 matches the official ${i.officialName}" to false
+                            OfficialChecksums.Verdict.DIFFERS_FROM_OFFICIAL -> "✗ SHA-256 does NOT match the official ${i.officialName}: damaged, download again" to true
                             OfficialChecksums.Verdict.UNKNOWN_FILE -> "SHA-256 recorded (no official checksum known for this file)" to false
                         }
                         Text(

@@ -19,10 +19,31 @@ object OfficialChecksums {
 
     enum class Verdict { MATCHES_OFFICIAL, DIFFERS_FROM_OFFICIAL, UNKNOWN_FILE }
 
-    fun verdict(fileName: String, sha256: String): Verdict {
-        val entry = known[fileName.lowercase()] ?: return Verdict.UNKNOWN_FILE
-        return if (entry.sha256.equals(sha256, ignoreCase = true)) Verdict.MATCHES_OFFICIAL else Verdict.DIFFERS_FROM_OFFICIAL
+    /** [officialName] is the known file the hash matched, or that the (normalized) name refers to. */
+    data class Match(val verdict: Verdict, val officialName: String?)
+
+    private val byHash: Map<String, String> = known.entries.associate { it.value.sha256 to it.key }
+
+    /**
+     * Strips the suffixes that browsers and download managers add to repeated downloads
+     * ("ggml-small.en (1).bin", "ggml-small.en-1.bin", "ggml-small.en_2.bin", "ggml-small.en(3).bin").
+     */
+    fun normalizeName(fileName: String): String {
+        val lower = fileName.trim().lowercase()
+        val dot = lower.lastIndexOf('.')
+        if (dot <= 0) return lower
+        val stem = lower.substring(0, dot).replace(Regex("""(\s*\(\d+\)|[-_]\d+)$"""), "").trimEnd()
+        return stem + lower.substring(dot)
     }
+
+    /** Matches by hash first (the name does not matter), then by normalized name. */
+    fun match(fileName: String, sha256: String): Match {
+        byHash[sha256.lowercase()]?.let { return Match(Verdict.MATCHES_OFFICIAL, it) }
+        val name = normalizeName(fileName)
+        return if (name in known) Match(Verdict.DIFFERS_FROM_OFFICIAL, name) else Match(Verdict.UNKNOWN_FILE, null)
+    }
+
+    fun verdict(fileName: String, sha256: String): Verdict = match(fileName, sha256).verdict
 
     /** Turns low-level loader errors into advice. */
     fun loadFailureHint(reason: String): String? = when {

@@ -37,7 +37,14 @@ enum class ModelKind(
 data class ImportProgress(val kind: ModelKind, val copiedBytes: Long, val totalBytes: Long, val verifying: Boolean = false)
 
 /** SHA-256 of an installed model file and how it compares with the official checksum. */
-data class ModelIntegrity(val fileName: String, val sizeBytes: Long, val sha256: String, val verdict: OfficialChecksums.Verdict)
+data class ModelIntegrity(
+    val fileName: String,
+    val sizeBytes: Long,
+    val sha256: String,
+    val verdict: OfficialChecksums.Verdict,
+    /** The official file this one matched (by hash) or claims to be (by normalized name). */
+    val officialName: String? = null,
+)
 
 @Singleton
 class ModelStore @Inject constructor(@ApplicationContext private val context: Context) {
@@ -110,15 +117,15 @@ class ModelStore @Inject constructor(@ApplicationContext private val context: Co
                 val copySha = sha256(file) { n -> _progress.value = ImportProgress(kind, n, file.length(), verifying = true) }
                 check(copySha == sourceSha) { "The copy of $name is corrupted (SHA-256 $copySha, source $sourceSha). Please try again." }
                 // 2) The source itself must match the official file, when we know it.
-                val verdict = OfficialChecksums.verdict(name, copySha)
-                if (verdict == OfficialChecksums.Verdict.DIFFERS_FROM_OFFICIAL) {
-                    val official = OfficialChecksums.known.getValue(name.lowercase())
+                val match = OfficialChecksums.match(name, copySha)
+                if (match.verdict == OfficialChecksums.Verdict.DIFFERS_FROM_OFFICIAL) {
+                    val official = OfficialChecksums.known.getValue(requireNotNull(match.officialName))
                     throw IllegalArgumentException(
-                        "$name does not match the official file (SHA-256 ${copySha.take(12)}…, expected ${official.sha256.take(12)}…). " +
-                            "The download is damaged; download it again.",
+                        "$name does not match the official ${match.officialName} (SHA-256 ${copySha.take(12)}…, " +
+                            "expected ${official.sha256.take(12)}…). The download is damaged; download it again.",
                     )
                 }
-                saveIntegrity(kind, ModelIntegrity(name, file.length(), copySha, verdict))
+                saveIntegrity(kind, ModelIntegrity(name, file.length(), copySha, match.verdict, match.officialName))
             }
             target.deleteRecursively()
             check(staging.renameTo(target)) { "Could not move model into place" }
@@ -141,7 +148,8 @@ class ModelStore @Inject constructor(@ApplicationContext private val context: Co
         val file = requireNotNull(file(kind)?.takeIf { it.isFile }) { "${kind.label} is not installed" }
         try {
             val sha = sha256(file) { n -> _progress.value = ImportProgress(kind, n, file.length(), verifying = true) }
-            ModelIntegrity(file.name, file.length(), sha, OfficialChecksums.verdict(file.name, sha)).also { saveIntegrity(kind, it) }
+            val match = OfficialChecksums.match(file.name, sha)
+            ModelIntegrity(file.name, file.length(), sha, match.verdict, match.officialName).also { saveIntegrity(kind, it) }
         } finally {
             _progress.value = null
         }
@@ -149,13 +157,17 @@ class ModelStore @Inject constructor(@ApplicationContext private val context: Co
 
     private fun saveIntegrity(kind: ModelKind, i: ModelIntegrity) {
         hashDir.mkdirs()
-        File(hashDir, kind.name).writeText("${i.fileName}\n${i.sizeBytes}\n${i.sha256}\n${i.verdict.name}")
+        File(hashDir, kind.name).writeText("${i.fileName}\n${i.sizeBytes}\n${i.sha256}\n${i.verdict.name}\n${i.officialName.orEmpty()}")
         _integrity.value = loadIntegrity()
     }
 
     private fun loadIntegrity(): Map<ModelKind, ModelIntegrity> = ModelKind.entries.mapNotNull { kind ->
         val lines = File(hashDir, kind.name).takeIf { it.isFile }?.readLines() ?: return@mapNotNull null
-        runCatching { kind to ModelIntegrity(lines[0], lines[1].toLong(), lines[2], OfficialChecksums.Verdict.valueOf(lines[3])) }.getOrNull()
+        runCatching {
+            // Re-evaluate with the current matching rules, so results saved by older versions are corrected.
+            val match = OfficialChecksums.match(lines[0], lines[2])
+            kind to ModelIntegrity(lines[0], lines[1].toLong(), lines[2], match.verdict, match.officialName)
+        }.getOrNull()
     }.toMap()
 
     private fun sha256(file: File, onProgress: (Long) -> Unit): String {
