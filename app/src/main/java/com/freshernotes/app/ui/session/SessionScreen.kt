@@ -25,6 +25,10 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.core.content.ContextCompat
 import com.freshernotes.app.audio.ListenState
 import com.freshernotes.app.session.FresherState
+import com.freshernotes.app.engine.EngineStatus
+import com.freshernotes.app.engine.LoadState
+import androidx.compose.foundation.layout.size
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
@@ -76,7 +80,12 @@ fun SessionScreen(onBack: () -> Unit, onOpenTopic: (Long) -> Unit, vm: SessionVi
         },
     ) { padding ->
         Column(Modifier.padding(padding).fillMaxSize().imePadding()) {
-            Transcript(turns, Modifier.weight(1f))
+            val timings by vm.timings.collectAsStateWithLifecycle()
+            Transcript(turns, timings, Modifier.weight(1f))
+            if (!ended) {
+                val engines by vm.engineStatus.collectAsStateWithLifecycle()
+                EngineBanner(engines)
+            }
             val fresher by vm.fresherState.collectAsStateWithLifecycle()
             FresherStatus(fresher, onDismiss = vm::dismissError)
             val warning by vm.deviceWarning.collectAsStateWithLifecycle()
@@ -108,7 +117,7 @@ fun SessionScreen(onBack: () -> Unit, onOpenTopic: (Long) -> Unit, vm: SessionVi
 }
 
 @Composable
-private fun Transcript(turns: List<TurnEntity>, modifier: Modifier) {
+private fun Transcript(turns: List<TurnEntity>, timings: Map<Long, TurnTiming>, modifier: Modifier) {
     val listState = rememberLazyListState()
     LaunchedEffect(turns.size) { if (turns.isNotEmpty()) listState.animateScrollToItem(turns.lastIndex) }
     LazyColumn(
@@ -117,12 +126,12 @@ private fun Transcript(turns: List<TurnEntity>, modifier: Modifier) {
         verticalArrangement = Arrangement.spacedBy(8.dp),
         contentPadding = androidx.compose.foundation.layout.PaddingValues(12.dp),
     ) {
-        items(turns, key = { it.id }) { TurnBubble(it) }
+        items(turns, key = { it.id }) { TurnBubble(it, timings[it.id]) }
     }
 }
 
 @Composable
-private fun TurnBubble(turn: TurnEntity) {
+private fun TurnBubble(turn: TurnEntity, timing: TurnTiming?) {
     val fresher = turn.speaker == Speaker.FRESHER.name
     Row(Modifier.fillMaxWidth(), horizontalArrangement = if (fresher) Arrangement.Start else Arrangement.End) {
         Card(
@@ -134,8 +143,40 @@ private fun TurnBubble(turn: TurnEntity) {
             Column(Modifier.padding(12.dp)) {
                 Text(if (fresher) "Arjun (fresher)" else "You", style = MaterialTheme.typography.labelMedium)
                 Text(turn.text, style = MaterialTheme.typography.bodyLarge)
+                timing?.let {
+                    Text(
+                        "%.1f s audio → transcribed in %.1f s".format(it.audioSeconds, it.processingSeconds),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.testTag("turnTiming"),
+                    )
+                }
             }
         }
+    }
+}
+
+/** Shows model loading progress until both engines are ready (or a load failed). */
+@Composable
+private fun EngineBanner(status: EngineStatus) {
+    val text = when {
+        status.whisper == LoadState.LOADING -> "Loading speech model…"
+        status.llm == LoadState.LOADING -> "Loading language model… (you can already speak)"
+        status.whisper == LoadState.FAILED || status.llm == LoadState.FAILED -> status.error?.let { "Model failed to load: $it" }
+        else -> null
+    } ?: return
+    val failed = status.whisper == LoadState.FAILED || status.llm == LoadState.FAILED
+    Row(
+        Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp).testTag("engineBanner"),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        if (!failed) CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
+        Text(
+            text,
+            Modifier.padding(start = 8.dp),
+            style = MaterialTheme.typography.bodySmall,
+            color = if (failed) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
+        )
     }
 }
 
@@ -173,6 +214,7 @@ private fun MicBar(state: ListenState, onMic: () -> Unit) {
                     state.hearingSpeech -> "Hearing you…"
                     else -> "Listening (continuous)"
                 }
+                ListenState.LoadingModel -> "Loading speech model… your recording is kept"
                 ListenState.Transcribing -> "Transcribing…"
                 is ListenState.Error -> state.message
             },

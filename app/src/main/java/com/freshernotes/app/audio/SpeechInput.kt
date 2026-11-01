@@ -18,8 +18,12 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
+/** A transcribed utterance with how long the audio was and how long whisper took. */
+data class Transcript(val text: String, val audioSeconds: Double, val processingSeconds: Double)
+
 sealed interface ListenState {
     data object Idle : ListenState
+    data object LoadingModel : ListenState
     data class Listening(val continuous: Boolean, val hearingSpeech: Boolean) : ListenState
     data object Transcribing : ListenState
     data class Error(val message: String) : ListenState
@@ -37,8 +41,8 @@ class SpeechInput @Inject constructor(
     private val _state = MutableStateFlow<ListenState>(ListenState.Idle)
     val state: StateFlow<ListenState> = _state.asStateFlow()
 
-    private val _transcripts = MutableSharedFlow<String>(extraBufferCapacity = 8)
-    val transcripts: SharedFlow<String> = _transcripts.asSharedFlow()
+    private val _transcripts = MutableSharedFlow<Transcript>(extraBufferCapacity = 32)
+    val transcripts: SharedFlow<Transcript> = _transcripts.asSharedFlow()
 
     /** While true (e.g. the fresher is speaking through TTS) captured audio is discarded. */
     @Volatile var muted: Boolean = false
@@ -106,13 +110,16 @@ class SpeechInput @Inject constructor(
         workerJob = scope.launch {
             for (audio in queue) {
                 val previous = _state.value
-                _state.value = ListenState.Transcribing
                 try {
+                    if (!engines.isWhisperReady()) _state.value = ListenState.LoadingModel
                     val engine = engines.whisper()
+                    _state.value = ListenState.Transcribing
                     val t0 = System.nanoTime()
                     val text = engine.transcribe(audio, prompt = DOMAIN_PROMPT)
-                    perf.recordStt(audio.size / 16_000.0, (System.nanoTime() - t0) / 1e9)
-                    if (TranscriptFilter.isMeaningful(text)) _transcripts.emit(TranscriptFilter.clean(text))
+                    val audioSec = audio.size / 16_000.0
+                    val procSec = (System.nanoTime() - t0) / 1e9
+                    perf.recordStt(audioSec, procSec)
+                    if (TranscriptFilter.isMeaningful(text)) _transcripts.emit(Transcript(TranscriptFilter.clean(text), audioSec, procSec))
                     _state.value = if (isRecording()) previous else ListenState.Idle
                 } catch (e: kotlinx.coroutines.CancellationException) {
                     throw e

@@ -23,6 +23,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withTimeoutOrNull
 import javax.inject.Inject
 
 sealed interface FresherState {
@@ -51,9 +52,27 @@ class ConversationController @Inject constructor(
     val state: StateFlow<FresherState> = _state.asStateFlow()
     private val mutex = Mutex()
 
-    /** Called with every transcribed or typed senior utterance. Returns true if the senior asked to wrap up. */
+    /**
+     * Saves a senior turn immediately, independent of any reply in progress, so transcripts never queue behind
+     * the LLM or text-to-speech. Returns the new turn's id.
+     */
+    suspend fun recordSeniorTurn(sessionId: Long, text: String): Long {
+        val id = sessions.addTurn(sessionId, Speaker.SENIOR, text)
+        if (Persona.isWrapUp(text)) _state.value = FresherState.WrappedUp
+        return id
+    }
+
+    /** Record + respond in one call (typed input and tests). Returns true if the senior asked to wrap up. */
     suspend fun onSeniorTurn(sessionId: Long, text: String, speech: SpeechInput?): Boolean {
-        sessions.addTurn(sessionId, Speaker.SENIOR, text)
+        recordSeniorTurn(sessionId, text)
+        return respond(sessionId, speech)
+    }
+
+    /**
+     * Decides whether to ask and, if so, asks, using the turns saved so far (including any spoken while a previous
+     * reply was being generated). Returns true if the latest senior turn asked to wrap up.
+     */
+    suspend fun respond(sessionId: Long, speech: SpeechInput?): Boolean {
         return mutex.withLock {
             val prefs = settings.settings.first()
             val turns = sessions.turns(sessionId)
@@ -101,7 +120,10 @@ class ConversationController @Inject constructor(
             _state.value = FresherState.Speaking(question)
             speech?.muted = true
             try {
-                voices.synthesizer(preferPiper = piper).speak(question, rate)
+                // Never let a TTS engine that fails to report completion block the session.
+                val budgetMs = 5_000L + (question.split(' ').size * 700f / rate.coerceAtLeast(0.5f)).toLong()
+                val synth = voices.synthesizer(preferPiper = piper)
+                if (withTimeoutOrNull(budgetMs) { synth.speak(question, rate) } == null) synth.stop()
             } finally {
                 speech?.muted = false
             }

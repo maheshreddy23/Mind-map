@@ -9,18 +9,28 @@ import com.freshernotes.app.data.SessionRepository
 import com.freshernotes.app.data.settings.SettingsRepository
 import com.freshernotes.app.device.DeviceMonitor
 import com.freshernotes.app.di.ApplicationScope
+import com.freshernotes.app.engine.EngineStatus
+import com.freshernotes.app.engine.Engines
 import com.freshernotes.app.notes.NoteGenerator
 import com.freshernotes.app.session.ConversationController
-import kotlinx.coroutines.CoroutineScope
 import com.freshernotes.app.session.FresherState
+import com.freshernotes.core.llm.Persona
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import javax.inject.Inject
+
+/** How long one utterance was and how long whisper took to transcribe it. */
+data class TurnTiming(val audioSeconds: Double, val processingSeconds: Double)
 
 @HiltViewModel
 class SessionViewModel @Inject constructor(
@@ -31,6 +41,7 @@ class SessionViewModel @Inject constructor(
     private val conversation: ConversationController,
     private val notes: NoteGenerator,
     private val device: DeviceMonitor,
+    private val engines: Engines,
     @ApplicationScope private val appScope: CoroutineScope,
 ) : ViewModel() {
     val sessionId: Long = checkNotNull(savedState["sessionId"])
@@ -39,13 +50,34 @@ class SessionViewModel @Inject constructor(
     val turns = sessions.observeTurns(sessionId).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
     val listenState: StateFlow<ListenState> = speech.state
     val fresherState: StateFlow<FresherState> = conversation.state
+    val engineStatus: StateFlow<EngineStatus> = engines.status
+
     /** Thermal / battery warning to show, if any. */
     val deviceWarning = device.state.map { it.budget.warning }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
+    private val _timings = MutableStateFlow<Map<Long, TurnTiming>>(emptyMap())
+    /** Transcription timing per senior turn id, for turns spoken while this screen is open. */
+    val timings: StateFlow<Map<Long, TurnTiming>> = _timings.asStateFlow()
+
+    /** "Please respond" signals; CONFLATED so a backlog collapses into one reply using the latest turns. */
+    private val respondRequests = Channel<Unit>(Channel.CONFLATED)
+
     init {
         device.start()
+        // Transcripts are saved the moment they arrive, never queued behind the LLM or text-to-speech.
         viewModelScope.launch {
-            speech.transcripts.collect { onSeniorSpoke(it) }
+            speech.transcripts.collect { t ->
+                val id = onSeniorSpoke(t.text)
+                _timings.update { it + (id to TurnTiming(t.audioSeconds, t.processingSeconds)) }
+            }
+        }
+        // The fresher replies on its own coroutine.
+        viewModelScope.launch {
+            for (ignored in respondRequests) conversation.respond(sessionId, speech)
+        }
+        // Load whisper, then the LLM, in the background so the first turn does not wait for them.
+        viewModelScope.launch {
+            if (sessions.getSession(sessionId)?.endedAt == null) engines.preload()
         }
     }
 
@@ -68,9 +100,10 @@ class SessionViewModel @Inject constructor(
         viewModelScope.launch { onSeniorSpoke(trimmed) }
     }
 
-    private suspend fun onSeniorSpoke(text: String) {
-        val wrapUp = conversation.onSeniorTurn(sessionId, text, speech)
-        if (wrapUp) finish()
+    private suspend fun onSeniorSpoke(text: String): Long {
+        val id = conversation.recordSeniorTurn(sessionId, text)
+        if (Persona.isWrapUp(text)) finish() else respondRequests.trySend(Unit)
+        return id
     }
 
     fun wrapUp() {
