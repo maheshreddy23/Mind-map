@@ -5,6 +5,8 @@ import android.net.Uri
 import android.provider.OpenableColumns
 import androidx.documentfile.provider.DocumentFile
 import com.freshernotes.core.ModelFileCheck
+import com.freshernotes.core.OfficialChecksums
+import java.security.MessageDigest
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -32,13 +34,21 @@ enum class ModelKind(
     ),
 }
 
-data class ImportProgress(val kind: ModelKind, val copiedBytes: Long, val totalBytes: Long)
+data class ImportProgress(val kind: ModelKind, val copiedBytes: Long, val totalBytes: Long, val verifying: Boolean = false)
+
+/** SHA-256 of an installed model file and how it compares with the official checksum. */
+data class ModelIntegrity(val fileName: String, val sizeBytes: Long, val sha256: String, val verdict: OfficialChecksums.Verdict)
 
 @Singleton
 class ModelStore @Inject constructor(@ApplicationContext private val context: Context) {
     private val root = File(context.filesDir, "models")
     private val _installed = MutableStateFlow(scan())
     val installed: StateFlow<Map<ModelKind, File>> = _installed.asStateFlow()
+
+    private val hashDir = File(root, ".hashes")
+    private val _integrity = MutableStateFlow(loadIntegrity())
+    /** Known integrity results, from import or from an explicit [verify]. */
+    val integrity: StateFlow<Map<ModelKind, ModelIntegrity>> = _integrity.asStateFlow()
 
     private val _progress = MutableStateFlow<ImportProgress?>(null)
     val progress: StateFlow<ImportProgress?> = _progress.asStateFlow()
@@ -70,25 +80,45 @@ class ModelStore @Inject constructor(@ApplicationContext private val context: Co
                 val name = displayName(uri) ?: "${kind.name.lowercase()}.bin"
                 val total = size(uri)
                 var copied = 0L
+                val sourceDigest = MessageDigest.getInstance("SHA-256")
+                val file = File(staging, name)
                 context.contentResolver.openInputStream(uri).use { input ->
                     requireNotNull(input) { "Cannot open $uri" }
-                    File(staging, name).outputStream().use { out ->
+                    file.outputStream().use { out ->
                         val buf = ByteArray(1 shl 20)
                         while (true) {
                             val n = input.read(buf)
                             if (n < 0) break
                             out.write(buf, 0, n)
+                            sourceDigest.update(buf, 0, n)
                             copied += n
                             _progress.value = ImportProgress(kind, copied, total)
                         }
+                        out.fd.sync()
                     }
                 }
-            }
-            if (!kind.isDirectory) {
-                val file = requireNotNull(staging.listFiles()?.firstOrNull()) { "Nothing was copied" }
+                if (total > 0 && copied != total) {
+                    throw IllegalStateException("Read $copied of $total bytes from $name; the source file may still be downloading.")
+                }
                 val header = file.inputStream().use { input -> ByteArray(16).let { b -> b.copyOf(maxOf(0, input.read(b))) } }
-                val result = ModelFileCheck.check(kind.format, header, file.length(), file.name)
-                if (result is ModelFileCheck.Result.Bad) throw IllegalArgumentException(result.message)
+                val headerCheck = ModelFileCheck.check(kind.format, header, file.length(), file.name)
+                if (headerCheck is ModelFileCheck.Result.Bad) throw IllegalArgumentException(headerCheck.message)
+
+                // 1) The copy must be byte-identical to what was read from the source.
+                val sourceSha = sourceDigest.digest().toHex()
+                _progress.value = ImportProgress(kind, 0, file.length(), verifying = true)
+                val copySha = sha256(file) { n -> _progress.value = ImportProgress(kind, n, file.length(), verifying = true) }
+                check(copySha == sourceSha) { "The copy of $name is corrupted (SHA-256 $copySha, source $sourceSha). Please try again." }
+                // 2) The source itself must match the official file, when we know it.
+                val verdict = OfficialChecksums.verdict(name, copySha)
+                if (verdict == OfficialChecksums.Verdict.DIFFERS_FROM_OFFICIAL) {
+                    val official = OfficialChecksums.known.getValue(name.lowercase())
+                    throw IllegalArgumentException(
+                        "$name does not match the official file (SHA-256 ${copySha.take(12)}…, expected ${official.sha256.take(12)}…). " +
+                            "The download is damaged; download it again.",
+                    )
+                }
+                saveIntegrity(kind, ModelIntegrity(name, file.length(), copySha, verdict))
             }
             target.deleteRecursively()
             check(staging.renameTo(target)) { "Could not move model into place" }
@@ -101,8 +131,50 @@ class ModelStore @Inject constructor(@ApplicationContext private val context: Co
 
     fun remove(kind: ModelKind) {
         dir(kind).deleteRecursively()
+        File(hashDir, kind.name).delete()
+        _integrity.value = loadIntegrity()
         _installed.value = scan()
     }
+
+    /** Hashes the installed file and compares it with the official checksum (for models imported earlier). */
+    suspend fun verify(kind: ModelKind): ModelIntegrity = withContext(Dispatchers.IO) {
+        val file = requireNotNull(file(kind)?.takeIf { it.isFile }) { "${kind.label} is not installed" }
+        try {
+            val sha = sha256(file) { n -> _progress.value = ImportProgress(kind, n, file.length(), verifying = true) }
+            ModelIntegrity(file.name, file.length(), sha, OfficialChecksums.verdict(file.name, sha)).also { saveIntegrity(kind, it) }
+        } finally {
+            _progress.value = null
+        }
+    }
+
+    private fun saveIntegrity(kind: ModelKind, i: ModelIntegrity) {
+        hashDir.mkdirs()
+        File(hashDir, kind.name).writeText("${i.fileName}\n${i.sizeBytes}\n${i.sha256}\n${i.verdict.name}")
+        _integrity.value = loadIntegrity()
+    }
+
+    private fun loadIntegrity(): Map<ModelKind, ModelIntegrity> = ModelKind.entries.mapNotNull { kind ->
+        val lines = File(hashDir, kind.name).takeIf { it.isFile }?.readLines() ?: return@mapNotNull null
+        runCatching { kind to ModelIntegrity(lines[0], lines[1].toLong(), lines[2], OfficialChecksums.Verdict.valueOf(lines[3])) }.getOrNull()
+    }.toMap()
+
+    private fun sha256(file: File, onProgress: (Long) -> Unit): String {
+        val md = MessageDigest.getInstance("SHA-256")
+        var done = 0L
+        file.inputStream().use { input ->
+            val buf = ByteArray(1 shl 20)
+            while (true) {
+                val n = input.read(buf)
+                if (n < 0) break
+                md.update(buf, 0, n)
+                done += n
+                onProgress(done)
+            }
+        }
+        return md.digest().toHex()
+    }
+
+    private fun ByteArray.toHex() = joinToString("") { "%02x".format(it) }
 
     private fun displayName(uri: Uri): String? =
         context.contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { c ->

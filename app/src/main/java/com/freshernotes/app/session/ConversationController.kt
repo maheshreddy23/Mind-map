@@ -9,6 +9,7 @@ import com.freshernotes.app.engine.Engines
 import com.freshernotes.app.engine.LlamaLanguageModel
 import com.freshernotes.app.engine.MissingModelException
 import com.freshernotes.app.engine.SynthesizerProvider
+import com.freshernotes.core.OfficialChecksums
 import com.freshernotes.core.PerformancePolicy
 import com.freshernotes.core.Speaker
 import com.freshernotes.core.llm.ContextManager
@@ -110,7 +111,8 @@ class ConversationController @Inject constructor(
         } catch (e: MissingModelException) {
             _state.value = FresherState.Error("${e.kind.label} is not installed. Add it in Settings.")
         } catch (e: Exception) {
-            _state.value = FresherState.Error(e.message ?: "The fresher could not respond")
+            val msg = e.message ?: "The fresher could not respond"
+            _state.value = FresherState.Error(OfficialChecksums.loadFailureHint(msg)?.let { "$msg\n$it" } ?: msg)
         }
     }
 

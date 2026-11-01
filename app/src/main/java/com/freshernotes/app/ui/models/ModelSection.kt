@@ -23,6 +23,7 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.freshernotes.app.models.ModelKind
+import com.freshernotes.core.OfficialChecksums
 
 /** Lets the user pick model files with the Storage Access Framework; they are copied into private storage. */
 @Composable
@@ -30,6 +31,7 @@ fun ModelSection(vm: ModelsViewModel = hiltViewModel()) {
     val installed by vm.installed.collectAsStateWithLifecycle()
     val progress by vm.progress.collectAsStateWithLifecycle()
     val error by vm.error.collectAsStateWithLifecycle()
+    val integrity by vm.integrity.collectAsStateWithLifecycle()
     var pending by remember { mutableStateOf<ModelKind?>(null) }
 
     val pickFile = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? ->
@@ -53,7 +55,20 @@ fun ModelSection(vm: ModelsViewModel = hiltViewModel()) {
                         style = MaterialTheme.typography.bodySmall,
                         color = if (file == null && kind.required) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
                     )
+                    integrity[kind]?.takeIf { file != null && it.fileName == file.name }?.let { i ->
+                        val (label, bad) = when (i.verdict) {
+                            OfficialChecksums.Verdict.MATCHES_OFFICIAL -> "✓ SHA-256 matches the official file" to false
+                            OfficialChecksums.Verdict.DIFFERS_FROM_OFFICIAL -> "✗ SHA-256 does NOT match the official file — damaged, download again" to true
+                            OfficialChecksums.Verdict.UNKNOWN_FILE -> "SHA-256 recorded (no official checksum known for this file)" to false
+                        }
+                        Text(
+                            "$label\n${i.sha256}",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = if (bad) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
                 }
+                if (file != null && !kind.isDirectory) TextButton(enabled = progress == null, onClick = { vm.verify(kind) }) { Text("Verify") }
                 if (file != null) TextButton(onClick = { vm.remove(kind) }) { Text("Remove") }
                 OutlinedButton(enabled = progress == null, onClick = {
                     pending = kind
@@ -61,6 +76,7 @@ fun ModelSection(vm: ModelsViewModel = hiltViewModel()) {
                 }) { Text(if (file == null) "Pick" else "Replace") }
             }
             progress?.takeIf { it.kind == kind }?.let { p ->
+                Text(if (p.verifying) "Verifying SHA-256…" else "Copying…", style = MaterialTheme.typography.bodySmall)
                 if (p.totalBytes > 0) LinearProgressIndicator(progress = { p.copiedBytes.toFloat() / p.totalBytes }, modifier = Modifier.fillMaxWidth())
                 else LinearProgressIndicator(Modifier.fillMaxWidth())
             }

@@ -2,6 +2,7 @@ package com.freshernotes.app.audio
 
 import com.freshernotes.app.device.PerfStats
 import com.freshernotes.app.engine.Engines
+import com.freshernotes.core.OfficialChecksums
 import com.freshernotes.core.audio.Endpointer
 import com.freshernotes.core.audio.Framer
 import com.freshernotes.core.audio.TranscriptFilter
@@ -116,7 +117,8 @@ class SpeechInput @Inject constructor(
                 } catch (e: kotlinx.coroutines.CancellationException) {
                     throw e
                 } catch (e: Exception) {
-                    _state.value = ListenState.Error(e.message ?: "Transcription failed")
+                    val msg = e.message ?: "Transcription failed"
+                    _state.value = ListenState.Error(OfficialChecksums.loadFailureHint(msg)?.let { "$msg\n$it" } ?: msg)
                 }
             }
         }
