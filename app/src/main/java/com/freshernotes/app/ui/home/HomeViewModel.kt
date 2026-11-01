@@ -2,53 +2,60 @@ package com.freshernotes.app.ui.home
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.freshernotes.app.data.SessionRepository
 import com.freshernotes.app.data.LibraryRepository
+import com.freshernotes.app.data.SessionRepository
+import com.freshernotes.app.models.ModelKind
 import com.freshernotes.app.models.ModelStore
-import com.freshernotes.app.search.SearchHit
-import com.freshernotes.app.search.SearchIndex
+import com.freshernotes.app.ui.library.LibraryUi
 import dagger.hilt.android.lifecycle.HiltViewModel
-import kotlinx.coroutines.FlowPreview
-import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
-import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.debounce
-import kotlinx.coroutines.flow.map
-import kotlinx.coroutines.flow.mapLatest
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
-import kotlinx.coroutines.launch
-import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
+import java.util.Calendar
 import javax.inject.Inject
 
-@OptIn(FlowPreview::class, kotlinx.coroutines.ExperimentalCoroutinesApi::class)
 @HiltViewModel
 class HomeViewModel @Inject constructor(
-    private val sessions: SessionRepository,
+    sessions: SessionRepository,
     library: LibraryRepository,
     models: ModelStore,
-    private val index: SearchIndex,
 ) : ViewModel() {
-    val topics = library.observeAllTopics().map { it.take(8) }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
-    val recent = sessions.recentSessions().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
-    val inboxCount = library.observeInboxCount().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), 0)
-    val missingModels = models.installed.map { installed -> com.freshernotes.app.models.ModelKind.entries.filter { it.required && it !in installed } }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
-
-    private val _query = MutableStateFlow("")
-    val query = _query.asStateFlow()
-    val results = _query.debounce(200).mapLatest { q -> if (q.isBlank()) emptyList() else runCatching { index.search(q) }.getOrDefault(emptyList<SearchHit>()) }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
-
-    fun setQuery(q: String) {
-        _query.value = q
+    private val tiles = combine(library.observeAllTopics(), library.observeSubjects(), library.observeTopicCounts()) { topics, subjects, counts ->
+        Triple(topics, subjects, LibraryUi.tiles(topics, subjects, counts))
     }
 
-    fun startSession(onStarted: (Long) -> Unit) {
-        viewModelScope.launch {
-            val title = "Session " + SimpleDateFormat("d MMM, HH:mm", Locale.getDefault()).format(Date())
-            onStarted(sessions.startSession(title))
+    val state = combine(
+        tiles,
+        library.observeInboxCount(),
+        sessions.recentSessions(5),
+        models.installed,
+    ) { (topics, subjects, tiles), inbox, recent, installed ->
+        HomeUiState(
+            greeting = greeting(Calendar.getInstance().get(Calendar.HOUR_OF_DAY)),
+            missingModels = ModelKind.entries.filter { it.required && it !in installed }.map { it.label },
+            inboxCount = inbox,
+            // Topics are ordered by last update; continue the latest one that has entries.
+            continueTopic = tiles.firstOrNull { it.entries > 0 },
+            shelves = subjects.map { s -> ShelfTile(s.id, s.title, topics.count { it.subjectId == s.id }) },
+            recent = recent.map { s ->
+                SessionRow(
+                    s.id, s.title,
+                    when {
+                        s.endedAt == null -> "In progress"
+                        s.notesStatus == "PENDING" -> "Filing…"
+                        s.notesStatus == "FAILED" -> "Filing failed, retried on next launch"
+                        else -> "Ended"
+                    },
+                )
+            },
+        )
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), HomeUiState())
+
+    companion object {
+        fun greeting(hour: Int) = when (hour) {
+            in 5..11 -> "Good morning"
+            in 12..16 -> "Good afternoon"
+            else -> "Good evening"
         }
     }
 }

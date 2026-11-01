@@ -9,7 +9,8 @@ v2 decisions (requirements-v2 §14, decided 1 Nov 2026)
 5. Nudges: daily, with quiet hours.
 
 v2 delivery rules
-• Phases follow requirements-v2 §13, in order, one PR per phase, starting from main. Each phase passes CI and is tested on the phone before the next starts.
+• Phases follow requirements-v2 §13, one PR per phase, starting from main. Each phase passes CI and is tested on the phone before the next starts. Exception (owner's decision, 1 Nov 2026): the design pass (phase 6) runs right after phase 1, for existing screens only; Ask and Butler are built in that design when their phases land.
+• UI: docs/design-spec.md is the source of truth. Colours come only from the Mind theme tokens (ui/theme/Theme.kt); fonts are bundled (Newsreader, Inter). Every screen has a stateless …Content composable with light and dark Roborazzi screenshots in app/src/test/screenshots; re-record with ./gradlew recordRoborazziDebug when a change to a screen is intended.
 • Updates must install over the existing app with data intact: fixed signing key, Room migrations only (never fallbackToDestructiveMigration), and an instrumented migration test for every schema version bump. Room schemas are exported to app/schemas and committed.
 • Never delete user sessions or turns during a migration. v1 sessions are migrated into Subject → Topic → Entry; anything the migration is unsure about goes to the Inbox.
 • No catch-all "General" subject or topic, anywhere (prompts, parsers, fallbacks).

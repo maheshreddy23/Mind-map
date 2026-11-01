@@ -43,8 +43,25 @@ jobs:
 
       - uses: gradle/actions/setup-gradle@v4
 
-      - name: Build debug APK and run unit tests
-        run: ./gradlew assembleDebug testDebugUnitTest :core:test --stacktrace
+      - name: Cache Robolectric Android jars (screenshot tests)
+        uses: actions/cache@v4
+        with:
+          path: ~/.m2/repository/org/robolectric
+          key: robolectric-${{ hashFiles('gradle/libs.versions.toml') }}
+
+      # Unit tests include the Compose screenshot tests; verify mode fails on any visual change against
+      # the committed goldens in app/src/test/screenshots (re-record with ./gradlew recordRoborazziDebug).
+      - name: Build debug APK and run unit + screenshot tests
+        run: ./gradlew assembleDebug testDebugUnitTest :core:test -Proborazzi.test.verify=true --stacktrace
+
+      - name: Upload screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: screenshots
+          path: |
+            app/src/test/screenshots/
+            app/build/outputs/roborazzi/
 
       - name: Build release APK and verify it cannot reach the network
         run: |

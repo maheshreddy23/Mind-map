@@ -1,29 +1,33 @@
 package com.freshernotes.app.ui.library
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Share
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -31,21 +35,49 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.freshernotes.app.data.Pick
-import com.freshernotes.app.ui.BackTopBar
+import com.freshernotes.app.data.db.EntryEntity
 import com.freshernotes.app.ui.ConfirmDialog
 import com.freshernotes.app.ui.TextPromptDialog
+import com.freshernotes.app.ui.components.BUTLER_NAME
+import com.freshernotes.app.ui.components.BackBar
+import com.freshernotes.app.ui.components.Caption
+import com.freshernotes.app.ui.components.MindCard
+import com.freshernotes.app.ui.components.Pill
+import com.freshernotes.app.ui.components.PillStyle
+import com.freshernotes.app.ui.components.PrivacyChip
+import com.freshernotes.app.ui.components.ScreenTitle
+import com.freshernotes.app.ui.components.TypeChip
+import com.freshernotes.app.ui.formatTime
 import com.freshernotes.app.ui.notes.MarkdownView
+import com.freshernotes.app.ui.theme.Mind
+import com.freshernotes.app.ui.theme.MindDimens
 import com.freshernotes.core.library.EntryType
 import com.freshernotes.core.library.Privacy
 
-/** v2 §6.4: the topic page (rebuilt from entries), every entry on its own, and topic maintenance. */
+data class TopicUiState(
+    val title: String = "",
+    val subject: String? = null,
+    val hasSubject: Boolean = true,
+    val summary: String = "",
+    val updatedAt: Long = 0,
+    val entries: List<EntryEntity> = emptyList(),
+    val legacyMarkdown: String = "",
+    val summarizing: Boolean = false,
+)
+
 @Composable
-fun TopicScreen(onBack: () -> Unit, onOpenEntry: (Long) -> Unit, vm: TopicViewModel = hiltViewModel()) {
+fun TopicScreen(onBack: () -> Unit, onOpenEntry: (Long) -> Unit, onContinue: (String) -> Unit, vm: TopicViewModel = hiltViewModel()) {
     val topic by vm.topic.collectAsStateWithLifecycle()
     val subject by vm.subject.collectAsStateWithLifecycle()
     val entries by vm.entries.collectAsStateWithLifecycle()
@@ -53,9 +85,7 @@ fun TopicScreen(onBack: () -> Unit, onOpenEntry: (Long) -> Unit, vm: TopicViewMo
     val topics by vm.allTopics.collectAsStateWithLifecycle()
     val summarizing by vm.summarizing.collectAsStateWithLifecycle()
     val snackbar = rememberMessages(vm)
-    var menu by remember { mutableStateOf(false) }
     var dialog by remember { mutableStateOf<String?>(null) }
-    var showLegacy by rememberSaveable { mutableStateOf(false) }
 
     when (dialog) {
         "rename" -> TextPromptDialog("Rename topic", topic?.title.orEmpty(), "Rename", { vm.rename(it); dialog = null }, { dialog = null })
@@ -81,63 +111,207 @@ fun TopicScreen(onBack: () -> Unit, onOpenEntry: (Long) -> Unit, vm: TopicViewMo
         )
     }
 
+    TopicContent(
+        state = TopicUiState(
+            title = topic?.title.orEmpty(), subject = subject?.title, hasSubject = topic == null || topic?.subjectId != null,
+            summary = topic?.summary.orEmpty(), updatedAt = topic?.updatedAt ?: 0, entries = entries,
+            legacyMarkdown = topic?.legacyMarkdown.orEmpty(), summarizing = summarizing,
+        ),
+        snackbar = snackbar,
+        onBack = onBack,
+        onOpenEntry = onOpenEntry,
+        onMenu = { action ->
+            when (action) {
+                "summary" -> vm.rewriteSummary()
+                "clearSummary" -> vm.clearSummary()
+                "export" -> vm.export()
+                "discardLegacy" -> vm.discardLegacy()
+                else -> dialog = action
+            }
+        },
+        onContinue = { topic?.title?.let(onContinue) },
+    )
+}
+
+/** design-spec §4 Topic page. "Ask about this" joins when Ask lands (phase 3). */
+@Composable
+fun TopicContent(
+    state: TopicUiState,
+    snackbar: SnackbarHostState,
+    onBack: () -> Unit,
+    onOpenEntry: (Long) -> Unit,
+    onMenu: (String) -> Unit,
+    onContinue: () -> Unit,
+    initialTab: Int = 0,
+) {
+    val c = Mind.colors
+    var tab by rememberSaveable { mutableStateOf(initialTab) }
+    var menu by remember { mutableStateOf(false) }
+    var showLegacy by rememberSaveable { mutableStateOf(false) }
     Scaffold(
+        containerColor = c.ground,
+        snackbarHost = { SnackbarHost(snackbar) },
         topBar = {
-            BackTopBar(topic?.title ?: "Topic", onBack) {
-                IconButton(onClick = vm::export) { Icon(Icons.Default.Share, "Export Markdown") }
-                IconButton(onClick = { menu = true }) { Icon(Icons.Default.MoreVert, "More") }
-                DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
-                    listOf(
-                        "Rewrite summary" to { vm.rewriteSummary() },
-                        "Rename" to { dialog = "rename" },
-                        (if (subject == null) "Choose subject" else "Move to subject") to { dialog = "move" },
-                        "Merge into…" to { dialog = "merge" },
-                        "Delete topic" to { dialog = "delete" },
-                        "Delete topic and entries" to { dialog = "deleteAll" },
-                    ).forEach { (label, action) -> DropdownMenuItem(text = { Text(label) }, onClick = { menu = false; action() }) }
+            BackBar(onBack) {
+                IconButton(onClick = { onMenu("export") }) { Icon(Icons.Default.Share, "Export Markdown", tint = c.ink) }
+                Box {
+                    IconButton(onClick = { menu = true }) { Icon(Icons.Default.MoreVert, "Topic options", tint = c.ink) }
+                    DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+                        listOfNotNull(
+                            "Rewrite summary" to "summary",
+                            if (state.summary.isNotBlank()) "Remove summary" to "clearSummary" else null,
+                            "Rename" to "rename",
+                            (if (state.hasSubject) "Move to subject" else "Choose subject") to "move",
+                            "Merge into…" to "merge",
+                            "Delete topic" to "delete",
+                            "Delete topic and entries" to "deleteAll",
+                        ).forEach { (label, key) -> DropdownMenuItem(text = { Text(label) }, onClick = { menu = false; onMenu(key) }) }
+                    }
                 }
             }
         },
-        snackbarHost = { SnackbarHost(snackbar) },
+        bottomBar = {
+            Row(
+                Modifier.fillMaxWidth().background(c.ground).drawBehind {
+                    drawLine(c.line, Offset(0f, 0f), Offset(size.width, 0f), 1.dp.toPx())
+                }.navigationBarsPadding().padding(horizontal = MindDimens.screenPadding, vertical = 12.dp),
+            ) {
+                Pill("Continue topic", onContinue, Modifier.fillMaxWidth().testTag("continueTopic"), height = 48.dp, leading = Icons.Default.Mic)
+            }
+        },
     ) { padding ->
-        Column(Modifier.padding(padding).fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp).testTag("topic")) {
-            if (summarizing) {
-                Text("The butler is rewriting the summary…", style = MaterialTheme.typography.bodySmall)
-                LinearProgressIndicator(Modifier.fillMaxWidth())
+        val sessions = state.entries.mapNotNull { it.sessionId }.distinct().size
+        LazyColumn(
+            Modifier.fillMaxSize().padding(padding).testTag("topic"),
+            contentPadding = PaddingValues(start = MindDimens.screenPadding, end = MindDimens.screenPadding, top = 4.dp, bottom = 24.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp),
+        ) {
+            item {
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Caption(state.subject ?: "No subject yet")
+                    ScreenTitle(state.title)
+                    Caption(
+                        listOfNotNull(
+                            if (sessions > 0) "From " + LibraryUi.plural(sessions, "session", "sessions") else null,
+                            if (state.summary.isNotBlank()) "summary by $BUTLER_NAME" else null,
+                            if (state.updatedAt > 0) "updated " + java.text.DateFormat.getDateInstance(java.text.DateFormat.MEDIUM).format(java.util.Date(state.updatedAt)) else null,
+                        ).joinToString(" · ").replaceFirstChar { it.uppercase() },
+                    )
+                }
             }
-            if (subject == null && topic != null) {
-                Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer), modifier = Modifier.fillMaxWidth()) {
-                    Row(Modifier.padding(12.dp)) {
-                        Text("This topic has no subject yet.", Modifier.weight(1f))
-                        TextButton(onClick = { dialog = "move" }) { Text("Choose") }
+            if (!state.hasSubject) item {
+                MindCard(background = c.amberSoft, border = null, onClick = { onMenu("move") }) {
+                    Text("This topic has no subject yet. Tap to choose one.", style = Mind.type.body, color = c.ink)
+                }
+            }
+            item { Tabs(tab, state.entries.size) { tab = it } }
+            if (state.summarizing) item {
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Caption("$BUTLER_NAME is rewriting the summary…")
+                    LinearProgressIndicator(Modifier.fillMaxWidth(), color = c.accent, trackColor = c.line)
+                }
+            }
+            if (tab == 0) {
+                summaryItems(state, onOpenEntry, onMenu)
+                if (state.legacyMarkdown.isNotBlank()) item {
+                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Row {
+                            Pill(if (showLegacy) "Hide earlier page (v1)" else "Show earlier page (v1)", { showLegacy = !showLegacy }, style = PillStyle.TEXT)
+                            Pill("Discard it", { onMenu("discardLegacy") }, style = PillStyle.TEXT)
+                        }
+                        Caption("Kept exactly as it was before the update, including your edits. Discard it once the entries cover it.")
+                        if (showLegacy) MarkdownView(state.legacyMarkdown, Modifier.padding(top = 8.dp))
+                    }
+                }
+            } else {
+                if (state.entries.isEmpty()) item { Caption("No entries yet.") }
+                items(state.entries, key = { it.id }) { e ->
+                    MindCard(onClick = { onOpenEntry(e.id) }, padding = PaddingValues(14.dp)) {
+                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) { TypeChip(e.entryType()); PrivacyChip(e.entryPrivacy()) }
+                        Text(e.title, style = Mind.type.body.copy(fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold), color = c.ink)
+                        Text(e.body.lines().joinToString(" ") { it.removePrefix("- ").trim() }, style = Mind.type.body, color = c.ink, maxLines = 3, overflow = TextOverflow.Ellipsis)
+                        Caption((if (e.sessionId != null) "Session " else "Added ") + formatTime(e.createdAt))
                     }
                 }
             }
-            MarkdownView(topic?.markdown.orEmpty())
-            if (topic?.summary?.isNotBlank() == true) TextButton(onClick = vm::clearSummary) { Text("Remove summary") }
+        }
+    }
+}
 
-            if (entries.isNotEmpty()) {
-                HorizontalDivider(Modifier.padding(vertical = 12.dp))
-                Text("Entries", style = MaterialTheme.typography.titleMedium)
-                entries.forEach { e ->
-                    Column(Modifier.fillMaxWidth().clickable { onOpenEntry(e.id) }.padding(vertical = 8.dp)) {
-                        Text(e.title, style = MaterialTheme.typography.bodyLarge)
-                        Text("${e.entryType().label} · ${e.entryPrivacy().label}", style = MaterialTheme.typography.bodySmall)
+@Composable
+private fun Tabs(selected: Int, count: Int, onSelect: (Int) -> Unit) {
+    val c = Mind.colors
+    Row(Modifier.fillMaxWidth().drawBehind { drawLine(c.line, Offset(0f, size.height), Offset(size.width, size.height), 1.dp.toPx()) }) {
+        listOf("Summary", "Entries · $count").forEachIndexed { i, label ->
+            val on = i == selected
+            Box(
+                Modifier.heightIn(min = MindDimens.touch).clickable(role = Role.Tab) { onSelect(i) }
+                    .drawBehind { if (on) drawLine(c.accent, Offset(0f, size.height - 1.dp.toPx()), Offset(size.width, size.height - 1.dp.toPx()), 2.dp.toPx()) }
+                    .padding(horizontal = 12.dp, vertical = 12.dp),
+            ) {
+                Text(label, style = if (on) Mind.type.button else Mind.type.button.copy(fontWeight = androidx.compose.ui.text.font.FontWeight.Normal), color = if (on) c.ink else c.muted)
+            }
+        }
+    }
+}
+
+/** Summary: M's overview, the knowledge as numbered steps, then lessons/principles, ideas, and open questions. */
+private fun androidx.compose.foundation.lazy.LazyListScope.summaryItems(state: TopicUiState, onOpenEntry: (Long) -> Unit, onMenu: (String) -> Unit) {
+    val byType = state.entries.groupBy { it.entryType() }
+    item {
+        if (state.summary.isNotBlank()) {
+            Text(state.summary, style = Mind.type.reading, color = Mind.colors.ink)
+        } else if (state.entries.isNotEmpty()) {
+            Row(Modifier.clip(RoundedCornerShape(12.dp))) { Pill("Ask $BUTLER_NAME to write a summary", { onMenu("summary") }, style = PillStyle.OUTLINE, height = 40.dp) }
+        } else {
+            Caption("No entries yet. Continue the topic to add some.")
+        }
+    }
+    byType[EntryType.KNOWLEDGE]?.let { list ->
+        item {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                list.forEachIndexed { i, e ->
+                    Row(Modifier.fillMaxWidth().clickable { onOpenEntry(e.id) }, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Text("${i + 1}.", style = Mind.type.body, color = Mind.colors.muted)
+                        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                            Text(e.title, style = Mind.type.body.copy(fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold), color = Mind.colors.ink)
+                            MarkdownView(e.body)
+                        }
                     }
                 }
             }
-            val legacy = topic?.legacyMarkdown.orEmpty()
-            if (legacy.isNotBlank()) {
-                HorizontalDivider(Modifier.padding(vertical = 12.dp))
-                Row {
-                    TextButton(onClick = { showLegacy = !showLegacy }) { Text(if (showLegacy) "Hide earlier page (v1)" else "Show earlier page (v1)") }
-                    TextButton(onClick = vm::discardLegacy) { Text("Discard it") }
+        }
+    }
+    val boxes = listOf(
+        Triple(EntryType.LESSON, "Lessons", 0), Triple(EntryType.PRINCIPLE, "Principles", 0),
+        Triple(EntryType.IDEA, "Ideas", 1), Triple(EntryType.REFLECTION, "Reflections", 1), Triple(EntryType.OPEN_QUESTION, "Open questions", 2),
+    )
+    boxes.forEach { (type, label, style) ->
+        byType[type]?.let { list ->
+            item(key = "box$type") {
+                val c = Mind.colors
+                val (bg, fg) = when (style) {
+                    0 -> c.accentSoft to c.accent
+                    2 -> c.amberTint to c.amberText
+                    else -> c.neutralChip to c.neutralChipText
                 }
-                Text(
-                    "Kept exactly as it was before the update, including any edits you made. Discard it once the entries above cover it.",
-                    style = MaterialTheme.typography.bodySmall,
-                )
-                if (showLegacy) MarkdownView(legacy, Modifier.padding(top = 8.dp))
+                SummaryBox(label, bg, fg, list, onOpenEntry)
+            }
+        }
+    }
+}
+
+@Composable
+private fun SummaryBox(label: String, background: Color, labelColor: Color, entries: List<EntryEntity>, onOpenEntry: (Long) -> Unit) {
+    Column(
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(background).padding(14.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        Text(label, style = Mind.type.label, color = labelColor)
+        entries.forEach { e ->
+            Column(Modifier.fillMaxWidth().clickable { onOpenEntry(e.id) }) {
+                Text(e.title, style = Mind.type.body.copy(fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold), color = Mind.colors.ink)
+                MarkdownView(e.body)
             }
         }
     }

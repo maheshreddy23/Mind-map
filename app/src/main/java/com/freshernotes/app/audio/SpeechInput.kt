@@ -44,6 +44,10 @@ class SpeechInput @Inject constructor(
     private val _transcripts = MutableSharedFlow<Transcript>(extraBufferCapacity = 32)
     val transcripts: SharedFlow<Transcript> = _transcripts.asSharedFlow()
 
+    private val _level = MutableStateFlow(0f)
+    /** Microphone loudness 0..1 (RMS of the latest chunk, scaled), for the waveform. 0 when not recording. */
+    val level: StateFlow<Float> = _level.asStateFlow()
+
     /** While true (e.g. the fresher is speaking through TTS) captured audio is discarded. */
     @Volatile var muted: Boolean = false
 
@@ -66,6 +70,7 @@ class SpeechInput @Inject constructor(
                 val framer = endpointer?.let { Framer(it.frameSize) }
                 _state.value = ListenState.Listening(continuous, hearingSpeech = false)
                 recorder.record().collect { chunk ->
+                    _level.value = if (muted) 0f else levelOf(chunk)
                     if (muted) {
                         endpointer?.reset()
                         return@collect
@@ -91,6 +96,7 @@ class SpeechInput @Inject constructor(
 
     /** Stops recording. In push-to-talk mode, the captured audio is transcribed. */
     fun stop() {
+        _level.value = 0f
         recordJob?.cancel()
         recordJob = null
         if (!continuous) {
@@ -136,5 +142,13 @@ class SpeechInput @Inject constructor(
         const val DOMAIN_PROMPT =
             "Aerospace manufacturing engineering: jigs, fixtures, tooling, PLM, CATIA, NX, Teamcenter, BOM, GD&T, " +
                 "ECO, work instructions, datums, drilling templates, assembly jigs."
+
+        /** RMS scaled so normal speech (~0.05-0.1 RMS) fills most of the range. */
+        internal fun levelOf(chunk: FloatArray): Float {
+            if (chunk.isEmpty()) return 0f
+            var sum = 0.0
+            for (x in chunk) sum += x * x
+            return (kotlin.math.sqrt(sum / chunk.size) * 8.0).toFloat().coerceIn(0f, 1f)
+        }
     }
 }

@@ -53,6 +53,7 @@ class SessionViewModel @Inject constructor(
     /** Entries this session produced (after wrap-up). */
     val entries = library.observeSessionEntries(sessionId).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
     val listenState: StateFlow<ListenState> = speech.state
+    val level: StateFlow<Float> = speech.level
     val fresherState: StateFlow<FresherState> = conversation.state
     val engineStatus: StateFlow<EngineStatus> = engines.status
 

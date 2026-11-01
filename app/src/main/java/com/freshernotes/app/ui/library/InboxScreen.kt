@@ -1,20 +1,32 @@
 package com.freshernotes.app.ui.library
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.MutableTransitionState
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.slideInVertically
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
-import androidx.compose.material3.Card
-import androidx.compose.material3.MaterialTheme
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -23,24 +35,58 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.freshernotes.app.data.Pick
 import com.freshernotes.app.data.db.EntryEntity
-import com.freshernotes.app.ui.BackTopBar
+import com.freshernotes.app.ui.components.BackBar
+import com.freshernotes.app.ui.components.Caption
+import com.freshernotes.app.ui.components.MindCard
+import com.freshernotes.app.ui.components.NeedsYouChip
+import com.freshernotes.app.ui.components.Pill
+import com.freshernotes.app.ui.components.PillStyle
+import com.freshernotes.app.ui.components.PrivacyChip
+import com.freshernotes.app.ui.components.ScreenTitle
+import com.freshernotes.app.ui.components.SectionLabel
+import com.freshernotes.app.ui.components.TypeChip
+import com.freshernotes.app.ui.theme.Mind
+import com.freshernotes.app.ui.theme.MindDimens
 
-/** v2 §6.3 / §11.3: entries awaiting confirmation, plus today's automatic filings with Undo. */
+data class InboxItem(
+    val entry: EntryEntity,
+    val subject: String?,
+    val topic: String?,
+    val newSubject: Boolean,
+    val newTopic: Boolean,
+    val canAccept: Boolean,
+)
+
+data class FiledItem(val entry: EntryEntity, val breadcrumb: String, val undoable: Boolean)
+
+data class InboxUiState(
+    val sessionMode: Boolean = false,
+    val filing: Boolean = false,
+    val failed: Boolean = false,
+    val filedFromSession: Int = 0,
+    val waitingFromSession: Int = 0,
+    val needs: List<InboxItem> = emptyList(),
+    /** Entries accepted on this screen, shown as one confirmation line each. */
+    val confirmations: List<Pair<Long, String>> = emptyList(),
+    val filed: List<FiledItem> = emptyList(),
+)
+
 @Composable
-fun InboxScreen(onBack: () -> Unit, onOpenEntry: (Long) -> Unit, vm: InboxViewModel = hiltViewModel()) {
-    val inbox by vm.inbox.collectAsStateWithLifecycle()
-    val filedToday by vm.filedToday.collectAsStateWithLifecycle()
+fun InboxScreen(onBack: (() -> Unit)?, onOpenEntry: (Long) -> Unit, onOpenTopic: (Long) -> Unit, vm: InboxViewModel = hiltViewModel()) {
+    val state by vm.state.collectAsStateWithLifecycle()
     val subjects by vm.subjects.collectAsStateWithLifecycle()
     val topics by vm.allTopics.collectAsStateWithLifecycle()
     var filing by remember { mutableStateOf<EntryEntity?>(null) }
     val snackbar = rememberMessages(vm)
-
     filing?.let { e ->
         FileEntryDialog(
             title = "File \"${e.title}\"",
@@ -51,29 +97,79 @@ fun InboxScreen(onBack: () -> Unit, onOpenEntry: (Long) -> Unit, vm: InboxViewMo
             onDismiss = { filing = null },
         )
     }
-    Scaffold(topBar = { BackTopBar("Inbox", onBack) }, snackbarHost = { SnackbarHost(snackbar) }) { padding ->
-        LazyColumn(Modifier.padding(padding).testTag("inbox")) {
-            if (inbox.isEmpty()) item { Hint("Nothing waiting. Entries the butler is unsure about appear here.") }
-            items(inbox, key = { "i${it.id}" }) { e ->
-                val subjectName = (e.proposedSubjectPick() as? Pick.Existing)?.let { p -> subjects.firstOrNull { it.id == p.id }?.title } ?: e.proposedSubject
-                val topicName = (e.proposedTopicPick() as? Pick.Existing)?.let { p -> topics.firstOrNull { it.id == p.id }?.title } ?: e.proposedTopic
-                InboxCard(
-                    e, subjectName, topicName,
-                    newSubject = e.proposedSubjectPick() is Pick.New, newTopic = e.proposedTopicPick() is Pick.New,
-                    canAccept = e.proposedSubjectPick() != null && e.proposedTopicPick() != null,
-                    onOpen = { onOpenEntry(e.id) }, onAccept = { vm.accept(e) }, onChange = { filing = e }, onReject = { vm.reject(e) },
-                )
+    InboxContent(
+        state, snackbar, onBack, onOpenEntry,
+        onOpenTopic = { e -> e.topicId?.let(onOpenTopic) },
+        onAccept = vm::accept, onChange = { filing = it }, onDiscard = vm::reject, onUndo = vm::undo,
+    )
+}
+
+/** design-spec §4 Wrap-up and Inbox: "Needs you" cards first, then what was filed automatically (with Undo). */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+fun InboxContent(
+    state: InboxUiState,
+    snackbar: SnackbarHostState,
+    onBack: (() -> Unit)?,
+    onOpenEntry: (Long) -> Unit,
+    onOpenTopic: (EntryEntity) -> Unit,
+    onAccept: (EntryEntity) -> Unit,
+    onChange: (EntryEntity) -> Unit,
+    onDiscard: (EntryEntity) -> Unit,
+    onUndo: (EntryEntity) -> Unit,
+) {
+    val c = Mind.colors
+    Scaffold(
+        topBar = { if (onBack != null) BackBar(onBack) },
+        snackbarHost = { SnackbarHost(snackbar) },
+        containerColor = c.ground,
+    ) { padding ->
+        LazyColumn(
+            Modifier.fillMaxSize().padding(padding).then(if (onBack == null) Modifier.statusBarsPadding() else Modifier).testTag("inbox"),
+            contentPadding = PaddingValues(start = MindDimens.screenPadding, end = MindDimens.screenPadding, top = if (onBack == null) 28.dp else 4.dp, bottom = 24.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp),
+        ) {
+            item {
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Caption(if (state.sessionMode) "Session wrapped up" else "Inbox")
+                    Text(
+                        when {
+                            state.sessionMode && state.filing -> "Filing your session…"
+                            state.sessionMode && state.failed -> "Filing failed. I'll try again on next launch."
+                            state.sessionMode -> LibraryUi.filingHeadline(state.filedFromSession, state.waitingFromSession)
+                            state.needs.isEmpty() -> "Nothing needs your call."
+                            state.needs.size == 1 -> "One entry needs your call."
+                            else -> "${LibraryUi.word(state.needs.size).replaceFirstChar { it.uppercase() }} entries need your call."
+                        },
+                        style = Mind.type.screenTitle.copy(fontSize = Mind.type.screenTitle.fontSize.times(28f / 30f)), color = c.ink,
+                    )
+                    if (state.sessionMode && state.filing) LinearProgressIndicator(Modifier.fillMaxWidth().padding(top = 6.dp), color = c.accent, trackColor = c.line)
+                }
             }
-            if (filedToday.isNotEmpty()) {
-                item { SectionTitle("Filed today") }
-                items(filedToday, key = { "f${it.id}" }) { e ->
-                    val topic = topics.firstOrNull { it.id == e.topicId }
-                    Row(Modifier.fillMaxWidth().clickable { onOpenEntry(e.id) }.padding(horizontal = 16.dp, vertical = 6.dp)) {
-                        Column(Modifier.weight(1f)) {
-                            Text(e.title, style = MaterialTheme.typography.bodyLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                            Text("${e.entryType().label} · ${topic?.title ?: ""}", style = MaterialTheme.typography.bodySmall)
+            state.confirmations.forEach { (id, text) ->
+                item(key = "ok$id") { Text(text, style = Mind.type.button, color = c.accent) }
+            }
+            itemsIndexed(state.needs, key = { _, it -> "n${it.entry.id}" }) { i, item ->
+                Appear(i) { NeedsYouCard(item, onOpenEntry, onAccept, onChange, onDiscard) }
+            }
+            if (state.filed.isNotEmpty()) {
+                item { SectionLabel(if (state.sessionMode) "Filed automatically" else "Filed today", Modifier.padding(top = 4.dp)) }
+                itemsIndexed(state.filed, key = { _, it -> "f${it.entry.id}" }) { i, f ->
+                    Appear(state.needs.size + i) {
+                        MindCard(onClick = { onOpenEntry(f.entry.id) }, padding = PaddingValues(start = 16.dp, end = 6.dp, top = 6.dp, bottom = 14.dp)) {
+                            Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                                TypeChip(f.entry.entryType())
+                                Spacer(Modifier.weight(1f))
+                                if (f.undoable) Pill("Undo", { onUndo(f.entry) }, style = PillStyle.TEXT, height = MindDimens.touch)
+                            }
+                            Text(f.entry.title, style = Mind.type.body, color = c.ink)
+                            if (f.breadcrumb.isNotBlank()) {
+                                Text(
+                                    f.breadcrumb, style = Mind.type.label.copy(fontWeight = FontWeight.Normal), color = c.accent,
+                                    modifier = Modifier.padding(end = 8.dp).clickable { onOpenTopic(f.entry) },
+                                )
+                            }
                         }
-                        TextButton(onClick = { vm.undo(e) }) { Text("Undo") }
                     }
                 }
             }
@@ -81,49 +177,60 @@ fun InboxScreen(onBack: () -> Unit, onOpenEntry: (Long) -> Unit, vm: InboxViewMo
     }
 }
 
+/** Filing results animate in one by one (≤ 200 ms each, design-spec §5); system "remove animations" makes this instant. */
 @Composable
-private fun InboxCard(
-    e: EntryEntity,
-    subject: String?,
-    topic: String?,
-    newSubject: Boolean,
-    newTopic: Boolean,
-    canAccept: Boolean,
-    onOpen: () -> Unit,
-    onAccept: () -> Unit,
-    onChange: () -> Unit,
-    onReject: () -> Unit,
+private fun Appear(index: Int, content: @Composable () -> Unit) {
+    val visible = remember { MutableTransitionState(false) }
+    LaunchedEffect(Unit) { visible.targetState = true }
+    AnimatedVisibility(
+        visibleState = visible,
+        enter = fadeIn(tween(180, delayMillis = (index * 60).coerceAtMost(600))) + slideInVertically(tween(180, delayMillis = (index * 60).coerceAtMost(600))) { it / 6 },
+    ) { content() }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun NeedsYouCard(
+    item: InboxItem,
+    onOpenEntry: (Long) -> Unit,
+    onAccept: (EntryEntity) -> Unit,
+    onChange: (EntryEntity) -> Unit,
+    onDiscard: (EntryEntity) -> Unit,
 ) {
-    Card(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp).clickable(onClick = onOpen)) {
-        Column(Modifier.padding(12.dp)) {
-            Text(e.title, style = MaterialTheme.typography.titleMedium)
-            Text("${e.entryType().label} · ${e.entryPrivacy().label}", style = MaterialTheme.typography.labelMedium)
-            Spacer(Modifier.padding(2.dp))
-            Text(e.body, style = MaterialTheme.typography.bodyMedium, maxLines = 4, overflow = TextOverflow.Ellipsis)
-            Spacer(Modifier.padding(2.dp))
-            Text(
-                "Proposed: " + (subject?.let { it + if (newSubject) " (new)" else "" } ?: "no subject") +
-                    " › " + (topic?.let { it + if (newTopic) " (new)" else "" } ?: "no topic"),
-                style = MaterialTheme.typography.bodySmall,
-            )
-            if (e.reason.isNotBlank()) Text(e.reason, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Row {
-                TextButton(onClick = onAccept, enabled = canAccept) { Text("Accept") }
-                TextButton(onClick = onChange) { Text("Change") }
-                Spacer(Modifier.weight(1f))
-                TextButton(onClick = onReject) { Text("Reject") }
-            }
+    val c = Mind.colors
+    val e = item.entry
+    MindCard(onClick = { onOpenEntry(e.id) }, border = BorderStroke(1.5.dp, c.amberBorder)) {
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            NeedsYouChip(); TypeChip(e.entryType()); PrivacyChip(e.entryPrivacy())
+        }
+        Text(e.title, style = Mind.type.body.copy(fontWeight = FontWeight.SemiBold), color = c.ink)
+        Text(e.body.lines().joinToString(" ") { it.removePrefix("- ").trim() }, style = Mind.type.body, color = c.ink, maxLines = 4, overflow = TextOverflow.Ellipsis)
+        Text(
+            buildAnnotatedString {
+                if (item.subject == null && item.topic == null) {
+                    append("I'm unsure where this goes. Choose a subject and topic.")
+                } else {
+                    append("I'm unsure where this goes. Suggestion: ")
+                    withStyle(SpanStyle(color = c.ink, fontWeight = FontWeight.SemiBold)) {
+                        append(listOfNotNull(item.subject ?: "?", item.topic ?: "?").joinToString(" › "))
+                    }
+                    when {
+                        item.newSubject && item.newTopic -> append(" (new subject and topic)")
+                        item.newTopic -> append(" (new topic)")
+                        item.newSubject -> append(" (new subject)")
+                    }
+                }
+            },
+            style = Mind.type.label.copy(fontWeight = FontWeight.Normal), color = c.muted,
+        )
+        if (e.reason.isNotBlank()) Caption(e.reason)
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            if (item.canAccept) Pill("File it there", { onAccept(e) }, Modifier.testTag("accept"))
+            Pill(if (item.canAccept) "Change" else "Choose", { onChange(e) }, style = if (item.canAccept) PillStyle.OUTLINE else PillStyle.ACCENT)
+            Box { Pill("Discard", { onDiscard(e) }, style = PillStyle.TEXT) }
         }
     }
 }
-
-@Composable
-internal fun SectionTitle(text: String) =
-    Text(text, style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(16.dp, 16.dp, 16.dp, 4.dp))
-
-@Composable
-internal fun Hint(text: String) =
-    Text(text, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp))
 
 @Composable
 internal fun rememberMessages(vm: LibraryBaseViewModel): SnackbarHostState {

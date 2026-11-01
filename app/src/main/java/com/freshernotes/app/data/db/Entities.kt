@@ -127,3 +127,6 @@ data class TurnEntity(
     val text: String,
     val createdAt: Long = System.currentTimeMillis(),
 )
+
+/** Query result of [EntryDao.observeTopicCounts] (not a table). */
+data class TopicEntryCount(val topicId: Long, val type: String, val privacy: String, val n: Int)

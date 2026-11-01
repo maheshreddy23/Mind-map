@@ -35,7 +35,14 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.freshernotes.app.data.Pick
-import com.freshernotes.app.ui.BackTopBar
+import com.freshernotes.app.ui.components.BackBar
+import com.freshernotes.app.ui.components.Caption
+import com.freshernotes.app.ui.components.PrivacyChip
+import com.freshernotes.app.ui.components.TypeChip
+import com.freshernotes.app.ui.components.ScreenTitle
+import com.freshernotes.app.ui.components.NeedsYouChip
+import com.freshernotes.app.ui.theme.Mind
+import com.freshernotes.app.ui.theme.MindDimens
 import com.freshernotes.app.ui.ConfirmDialog
 import com.freshernotes.app.ui.formatTime
 import com.freshernotes.app.ui.notes.MarkdownView
@@ -80,7 +87,7 @@ fun EntryScreen(
 
     Scaffold(
         topBar = {
-            BackTopBar(if (editing) "Edit entry" else "Entry", onBack) {
+            BackBar(onBack) {
                 if (editing) {
                     IconButton(onClick = { vm.save(title, body, type, privacy); editing = false }) { Icon(Icons.Default.Check, "Save") }
                 } else if (e != null) {
@@ -93,8 +100,12 @@ fun EntryScreen(
             }
         },
         snackbarHost = { SnackbarHost(snackbar) },
+        containerColor = Mind.colors.ground,
     ) { padding ->
-        Column(Modifier.padding(padding).fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp)) {
+        Column(
+            Modifier.padding(padding).fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = MindDimens.screenPadding, vertical = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
             if (e == null) return@Column
             if (editing) {
                 OutlinedTextField(title, { title = it }, Modifier.fillMaxWidth(), label = { Text("Title") }, singleLine = true)
@@ -108,17 +119,18 @@ fun EntryScreen(
                     Privacy.entries.forEach { p -> FilterChip(selected = privacy == p, onClick = { privacy = p }, label = { Text(p.label) }) }
                 }
             } else {
-                Text(e.title, style = MaterialTheme.typography.headlineSmall)
                 val topic = topics.firstOrNull { it.id == e.topicId }
                 val subject = subjects.firstOrNull { it.id == topic?.subjectId }
-                Text(
-                    listOfNotNull(e.entryType().label, e.entryPrivacy().label, if (e.status == "INBOX") "In the Inbox" else null, formatTime(e.createdAt)).joinToString(" · "),
-                    style = MaterialTheme.typography.labelMedium,
-                )
-                if (topic != null) {
-                    TextButton(onClick = { onOpenTopic(topic.id) }) { Text(listOfNotNull(subject?.title, topic.title).joinToString(" › ")) }
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    if (e.status == "INBOX") NeedsYouChip()
+                    TypeChip(e.entryType()); PrivacyChip(e.entryPrivacy())
                 }
-                MarkdownView(e.body, Modifier.padding(top = 8.dp))
+                ScreenTitle(e.title)
+                Caption(formatTime(e.createdAt))
+                if (topic != null) {
+                    TextButton(onClick = { onOpenTopic(topic.id) }) { Text(listOfNotNull(subject?.title, topic.title).joinToString(" › "), style = Mind.type.label, color = Mind.colors.accent) }
+                }
+                MarkdownView(e.body, Modifier.padding(top = 4.dp))
                 e.sessionId?.let { sid -> TextButton(onClick = { onOpenSession(sid) }) { Text("Open the session it came from") } }
             }
         }

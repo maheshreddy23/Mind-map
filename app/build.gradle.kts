@@ -6,6 +6,7 @@ plugins {
     alias(libs.plugins.kotlin.compose)
     alias(libs.plugins.ksp)
     alias(libs.plugins.hilt)
+    alias(libs.plugins.roborazzi)
 }
 
 // The shipped app is arm64-v8a only. CI passes -PwithX86_64 to add an x86_64 build for the emulator.
@@ -19,8 +20,8 @@ android {
         applicationId = "com.freshernotes.app"
         minSdk = 29
         targetSdk = 35
-        versionCode = 2
-        versionName = "0.2.0"
+        versionCode = 3
+        versionName = "0.3.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         ndk {
             abiFilters += "arm64-v8a"
@@ -64,6 +65,8 @@ android {
 
     testOptions {
         unitTests.isReturnDefaultValues = true
+        // Screenshot tests (Robolectric + Roborazzi) render real resources: the bundled fonts and themes.
+        unitTests.isIncludeAndroidResources = true
     }
 
     // Exported Room schemas, so MigrationTestHelper can build every past database version.
@@ -116,6 +119,12 @@ dependencies {
 
     testImplementation(libs.junit)
     testImplementation(libs.kotlinx.coroutines.test)
+    testImplementation(libs.robolectric)
+    testImplementation(libs.roborazzi)
+    testImplementation(libs.roborazzi.compose)
+    testImplementation(libs.roborazzi.junit.rule)
+    testImplementation(platform(libs.androidx.compose.bom))
+    testImplementation(libs.androidx.compose.ui.test.junit4)
 
     androidTestImplementation(libs.junit)
     androidTestImplementation(libs.androidx.test.runner)
@@ -125,4 +134,10 @@ dependencies {
     androidTestImplementation(libs.androidx.room.testing)
     androidTestImplementation(platform(libs.androidx.compose.bom))
     androidTestImplementation(libs.androidx.compose.ui.test.junit4)
+}
+
+// Screenshot goldens live in src/test/screenshots (committed). Record: ./gradlew recordRoborazziDebug.
+// CI: ./gradlew verifyRoborazziDebug fails on any visual change.
+roborazzi {
+    outputDir.set(file("src/test/screenshots"))
 }

@@ -1,165 +1,172 @@
 package com.freshernotes.app.ui.home
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
-import androidx.compose.material.icons.filled.Search
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.ui.platform.testTag
-import com.freshernotes.app.search.DocKind
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Mic
-import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.ExtendedFloatingActionButton
-import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.ListItem
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Scaffold
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.freshernotes.app.ui.formatTime
+import com.freshernotes.app.ui.components.Avatar
+import com.freshernotes.app.ui.components.BUTLER_NAME
+import com.freshernotes.app.ui.components.Caption
+import com.freshernotes.app.ui.components.MindCard
+import com.freshernotes.app.ui.components.ScreenTitle
+import com.freshernotes.app.ui.components.SectionLabel
+import com.freshernotes.app.ui.library.LibraryUi
+import com.freshernotes.app.ui.library.TopicTile
+import com.freshernotes.app.ui.theme.Mind
+import com.freshernotes.app.ui.theme.MindDimens
 
-@OptIn(ExperimentalMaterial3Api::class)
+data class ShelfTile(val id: Long, val title: String, val topics: Int)
+data class SessionRow(val id: Long, val title: String, val status: String)
+
+data class HomeUiState(
+    val greeting: String = "Good evening",
+    val missingModels: List<String> = emptyList(),
+    val inboxCount: Int = 0,
+    val continueTopic: TopicTile? = null,
+    val shelves: List<ShelfTile> = emptyList(),
+    val recent: List<SessionRow> = emptyList(),
+)
+
 @Composable
 fun HomeScreen(
     onOpenSession: (Long) -> Unit,
     onOpenTopic: (Long) -> Unit,
-    onOpenEntry: (Long) -> Unit,
-    onOpenLibrary: () -> Unit,
+    onOpenSubject: (Long) -> Unit,
     onOpenInbox: () -> Unit,
     onOpenSettings: () -> Unit,
     vm: HomeViewModel = hiltViewModel(),
 ) {
-    val topics by vm.topics.collectAsStateWithLifecycle()
-    val recent by vm.recent.collectAsStateWithLifecycle()
-    val query by vm.query.collectAsStateWithLifecycle()
-    val results by vm.results.collectAsStateWithLifecycle()
-    val missing by vm.missingModels.collectAsStateWithLifecycle()
-    val inboxCount by vm.inboxCount.collectAsStateWithLifecycle()
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text("Fresher Notes") },
-                actions = {
-                    IconButton(onClick = onOpenSettings) { Icon(Icons.Default.Settings, contentDescription = "Settings") }
-                },
-            )
-        },
-        floatingActionButton = {
-            ExtendedFloatingActionButton(
-                onClick = { vm.startSession(onOpenSession) },
-                icon = { Icon(Icons.Default.Mic, contentDescription = null) },
-                text = { Text("Start session") },
-            )
-        },
-    ) { padding ->
-        LazyColumn(Modifier.padding(padding)) {
-            if (missing.isNotEmpty()) item {
-                Card(
-                    Modifier.fillMaxWidth().padding(12.dp).clickable(onClick = onOpenSettings),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer),
-                ) {
-                    Text(
-                        "Models needed: " + missing.joinToString { it.label } + ". Tap to pick them in Settings.",
-                        Modifier.padding(12.dp),
-                    )
+    val state by vm.state.collectAsStateWithLifecycle()
+    HomeContent(state, onOpenSession, onOpenTopic, onOpenSubject, onOpenInbox, onOpenSettings)
+}
+
+/** design-spec §4 Home (the nudge card arrives with nudges in phase 4). */
+@Composable
+fun HomeContent(
+    state: HomeUiState,
+    onOpenSession: (Long) -> Unit,
+    onOpenTopic: (Long) -> Unit,
+    onOpenSubject: (Long) -> Unit,
+    onOpenInbox: () -> Unit,
+    onOpenSettings: () -> Unit,
+) {
+    val c = Mind.colors
+    LazyColumn(
+        Modifier.fillMaxSize().background(c.ground).statusBarsPadding().testTag("home"),
+        contentPadding = PaddingValues(start = MindDimens.screenPadding, end = MindDimens.screenPadding, top = 28.dp, bottom = 24.dp),
+        verticalArrangement = Arrangement.spacedBy(18.dp),
+    ) {
+        item {
+            Row(verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text(state.greeting, style = Mind.type.label.copy(fontWeight = androidx.compose.ui.text.font.FontWeight.Normal), color = c.muted)
+                    ScreenTitle("What shall we shelve today?")
+                }
+                Avatar(BUTLER_NAME, onClick = onOpenSettings)
+            }
+        }
+        if (state.missingModels.isNotEmpty()) item {
+            MindCard(onClick = onOpenSettings, background = c.amberSoft, border = null) {
+                Text("Models needed", style = Mind.type.overline, color = c.amberText)
+                Text(state.missingModels.joinToString() + ". Pick them in Settings to start talking.", style = Mind.type.body, color = c.ink)
+            }
+        }
+        if (state.inboxCount > 0) item {
+            Row(
+                Modifier.fillMaxWidth().heightIn(min = MindDimens.touch).clip(RoundedCornerShape(14.dp)).background(c.surface)
+                    .clickable(role = Role.Button, onClick = onOpenInbox)
+                    .then(Modifier.padding(horizontal = 16.dp, vertical = 14.dp)).testTag("inboxStrip"),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                Box(Modifier.size(22.dp).clip(CircleShape).background(c.accent), contentAlignment = Alignment.Center) {
+                    Text("${state.inboxCount}", style = Mind.type.chip, color = c.onAccent)
+                }
+                Text(
+                    if (state.inboxCount == 1) "Entry waiting for your call" else "${state.inboxCount} entries waiting for your call",
+                    style = Mind.type.body, color = c.ink, modifier = Modifier.weight(1f),
+                )
+                Text("Review", style = Mind.type.button, color = c.accent)
+            }
+        }
+        state.continueTopic?.let { t ->
+            item {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    SectionLabel("Continue")
+                    MindCard(onClick = { onOpenTopic(t.id) }) {
+                        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            t.subject?.let { Caption(it) }
+                            Text(t.title, style = Mind.type.cardTitle, color = c.ink)
+                            Caption(
+                                LibraryUi.plural(t.entries, "entry", "entries") +
+                                    if (t.openQuestions > 0) " · " + LibraryUi.plural(t.openQuestions, "open question", "open questions") else "",
+                            )
+                        }
+                    }
                 }
             }
-            item {
-                OutlinedTextField(
-                    value = query,
-                    onValueChange = vm::setQuery,
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp).testTag("search"),
-                    placeholder = { Text("Search notes and sessions") },
-                    leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
-                    singleLine = true,
-                )
-            }
-            if (query.isNotBlank()) {
-                item { SectionHeader("Results") }
-                if (results.isEmpty()) item { EmptyRow("No matches.") }
-                items(results, key = { "r${it.kind}${it.refId}" }) { hit ->
-                    ListItem(
-                        headlineContent = { Text(hit.title) },
-                        supportingContent = { Text(hit.snippet.replace("**", "")) },
-                        overlineContent = {
-                            Text(when (hit.kind) { DocKind.TOPIC -> "Topic"; DocKind.ENTRY -> "Entry"; DocKind.SESSION -> "Session" })
-                        },
-                        modifier = Modifier.clickable {
-                            when (hit.kind) {
-                                DocKind.TOPIC -> onOpenTopic(hit.refId)
-                                DocKind.ENTRY -> onOpenEntry(hit.refId)
-                                DocKind.SESSION -> onOpenSession(hit.refId)
+        }
+        item {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                SectionLabel("Your shelves")
+                if (state.shelves.isEmpty()) {
+                    Caption("No shelves yet. Talk, wrap up, and confirm where $BUTLER_NAME files things.")
+                }
+                state.shelves.chunked(2).forEach { row ->
+                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        row.forEach { s ->
+                            Column(
+                                Modifier.weight(1f).heightIn(min = 60.dp).clip(RoundedCornerShape(14.dp))
+                                    .background(if (s.topics > 0) c.accentSoft else c.neutralChip)
+                                    .clickable(role = Role.Button) { onOpenSubject(s.id) }.padding(12.dp),
+                                verticalArrangement = Arrangement.spacedBy(4.dp),
+                            ) {
+                                Text(s.title, style = Mind.type.label.copy(fontSize = Mind.type.button.fontSize), color = c.ink, maxLines = 2, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+                                Caption(if (s.topics == 0) "Empty" else LibraryUi.plural(s.topics, "topic", "topics"), color = if (s.topics > 0) c.ink else c.neutralChipText)
                             }
-                        },
-                    )
+                        }
+                        repeat(2 - row.size) { Spacer(Modifier.weight(1f)) }
+                    }
                 }
-                item { HorizontalDivider() }
             }
-            item {
-                ListItem(
-                    headlineContent = { Text("Library") },
-                    supportingContent = { Text("Subjects, topics and entries") },
-                    modifier = Modifier.clickable(onClick = onOpenLibrary).testTag("open-library"),
-                )
-            }
-            item {
-                ListItem(
-                    headlineContent = { Text(if (inboxCount > 0) "Inbox ($inboxCount)" else "Inbox") },
-                    supportingContent = { Text(if (inboxCount > 0) "Entries waiting for your confirmation" else "Nothing waiting") },
-                    modifier = Modifier.clickable(onClick = onOpenInbox).testTag("open-inbox"),
-                )
-            }
-            item { HorizontalDivider() }
-            item { SectionHeader("Recently updated topics") }
-            if (topics.isEmpty()) item { EmptyRow("No topics yet. They appear after your first session is filed.") }
-            items(topics, key = { "t${it.id}" }) { t ->
-                ListItem(
-                    headlineContent = { Text(t.title) },
-                    supportingContent = { Text("Updated " + formatTime(t.updatedAt)) },
-                    modifier = Modifier.clickable { onOpenTopic(t.id) },
-                )
-            }
-            item { HorizontalDivider() }
-            item { SectionHeader("Recent sessions") }
-            if (recent.isEmpty()) item { EmptyRow("No sessions yet.") }
-            items(recent, key = { "s${it.id}" }) { s ->
-                ListItem(
-                    headlineContent = { Text(s.title) },
-                    supportingContent = {
-                        Text(
-                            when {
-                                s.endedAt == null -> "In progress"
-                                s.notesStatus == "PENDING" -> "Filing…"
-                                s.notesStatus == "FAILED" -> "Filing failed (retried on next launch)"
-                                else -> "Ended " + formatTime(s.endedAt)
-                            },
-                        )
-                    },
-                    modifier = Modifier.clickable { onOpenSession(s.id) },
-                )
+        }
+        if (state.recent.isNotEmpty()) item {
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                SectionLabel("Recent sessions")
+                state.recent.forEach { s ->
+                    Column(
+                        Modifier.fillMaxWidth().heightIn(min = MindDimens.touch).clip(RoundedCornerShape(10.dp))
+                            .clickable(role = Role.Button) { onOpenSession(s.id) }.padding(vertical = 8.dp),
+                    ) {
+                        Text(s.title, style = Mind.type.body, color = c.ink)
+                        Caption(s.status)
+                    }
+                }
             }
         }
     }
 }
-
-@Composable
-private fun SectionHeader(text: String) =
-    Text(text, style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(16.dp, 16.dp, 16.dp, 4.dp))
-
-@Composable
-private fun EmptyRow(text: String) =
-    Text(text, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp))

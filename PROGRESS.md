@@ -9,7 +9,7 @@
 | 3 | Ask the library: embeddings, semantic search, cited answers | Not started |
 | 4 | Nudges | Not started |
 | 5 | Privacy: sensitivity guard, app lock, encryption, backup | Not started |
-| 6 | Design pass | Not started |
+| 6 | Design pass (pulled forward at the owner's request: existing screens now; Ask and Butler get built in this style when their phases land) | In review (CI) |
 | 7 | Sharing | Not started |
 
 **v1 baseline on the OnePlus 13R (reported 1 Nov 2026):** whisper small.en at 0.48× real time; warm first LLM token 1848 ms at 12.4 tok/s; the transcript-latency fix confirmed working. First token is only ~150 ms under the 2 s target, so later phases must keep the persona/journal as a cached prompt prefix.
@@ -38,6 +38,24 @@ Known limitations:
 - The page "rewrite" is deterministic (group, number, de-duplicate); the LLM only writes the optional summary paragraph on request.
 - Butler-suggested links between topics (§6.4) are not in this phase.
 - Topic export is manual only; v1 auto-exported every page to Documents, which would put Private entries in shared storage.
+
+### v2 design pass (phase 6, pulled forward)
+Built, following docs/design-spec.md, with the "Mind-map App Redesign" canvas as the visual reference:
+- **Theme** (`ui/theme/Theme.kt`): every §2 token as `MindColors`, light and dark (dark derived from the spec's dark values), plus a Material 3 scheme derived from them. Dynamic colour is off. The Session focus palette is always dark. Every text/background pair used was checked at ≥ 4.5:1 (lowest: muted on ground, 5.16:1). No screen hard-codes a colour (checked by grep).
+- **Fonts:** Newsreader (400, 500) and Inter (400, 500, 600) bundled as static TTFs cut from the OFL variable fonts, about 1.2 MB. Licences are in `assets/licenses`. No network.
+- **Components:** bottom bar Home · Library · [Talk] · Inbox with a raised 62 dp Talk button and an Inbox badge; type, privacy and "Needs you" chips; pill buttons; bordered cards; dashed empty-shelf card; book spines; "M" avatar.
+- **Screens:**
+  - Home: greeting, inbox strip, Continue, shelves, recent sessions.
+  - Session: dark focus mode, "M asks" questions in Newsreader with an accent rule, "You · Xs · transcribed in Ys" captions, a live waveform driven by the real microphone level (new `SpeechInput.level`), 76 dp mic with a pulsing halo, model-loading line, typed input.
+  - Wrap-up/Inbox: one screen. After Wrap up (button or saying "wrap up") it opens with that session's results and the "I filed two entries. One needs your call." headline. Needs-you cards come first, and accepting one collapses it to a confirmation line. Then the Filed automatically list with Undo.
+  - Library: totals, FTS5 search, a privacy filter that works, spines with rotating colours, empty shelves, "Needs a subject", "+ New subject".
+  - Topic: Summary and Entries tabs, the summary drawn from typed entries, sticky "Continue topic".
+  - Entry and Subject screens are restyled too.
+- **Motion:** Material shared-axis X for pushed screens, a fade for Session, filing results fading in one by one (≤ 180 ms each). Compose follows the system "remove animations" setting.
+- **Screenshot tests** (Roborazzi 1.32.2 + Robolectric 4.14.1, JVM): 10 cases × light/dark = 20 goldens in `app/src/test/screenshots`. CI runs them in verify mode and uploads the images. A deliberately swapped golden failed verification locally, so the check is real.
+- No schema change. Version 0.3.0 (versionCode 3) installs over 0.2.0.
+
+Not built (no feature behind them yet): the Ask tab and screen (phase 3), the Butler screen (phase 2; the "M" avatar opens Settings until then), the nudge card (phase 4), Listen/Interview modes (phase 2), and "Ask about this" on topics (phase 3). "Continue topic" starts a session titled with the topic; it does not yet steer filing to that topic. Whisper has no live partial transcript, so Session shows "Listening…" rather than fake partial text.
 
 # v1
 

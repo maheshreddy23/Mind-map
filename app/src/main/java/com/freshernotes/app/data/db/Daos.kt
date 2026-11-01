@@ -112,6 +112,10 @@ interface TurnDao {
 
 @Dao
 interface EntryDao {
+    /** Filed-entry counts per topic, type and privacy (Library spines, Home cards, privacy filter). */
+    @Query("SELECT topicId, type, privacy, COUNT(*) AS n FROM entries WHERE status = 'FILED' AND topicId IS NOT NULL GROUP BY topicId, type, privacy")
+    fun observeTopicCounts(): Flow<List<TopicEntryCount>>
+
     @Query("SELECT * FROM entries WHERE status = 'INBOX' ORDER BY createdAt DESC, id")
     fun observeInbox(): Flow<List<EntryEntity>>
 

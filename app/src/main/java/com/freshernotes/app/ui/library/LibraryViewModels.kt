@@ -17,6 +17,10 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.debounce
+import kotlinx.coroutines.flow.mapLatest
+import com.freshernotes.app.search.SearchIndex
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -48,26 +52,100 @@ abstract class LibraryBaseViewModel(protected val library: LibraryRepository) : 
 }
 
 @HiltViewModel
-class InboxViewModel @Inject constructor(library: LibraryRepository) : LibraryBaseViewModel(library) {
-    val inbox = library.observeInbox().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
-    val filedToday = library.observeFiledToday().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+class InboxViewModel @Inject constructor(
+    savedState: SavedStateHandle,
+    library: LibraryRepository,
+    sessions: com.freshernotes.app.data.SessionRepository,
+) : LibraryBaseViewModel(library) {
+    /** Set when opened from wrap-up: the screen shows that session's results first. */
+    val sessionId: Long? = savedState.get<Long>("sessionId")?.takeIf { it > 0 }
+
+    private val justFiled = MutableStateFlow<List<Pair<Long, String>>>(emptyList())
+    private val sessionEntries = sessionId?.let { library.observeSessionEntries(it) } ?: flowOf(emptyList())
+    private val sessionStatus = sessionId?.let { id -> sessions.observeSession(id) } ?: flowOf(null)
+
+    private val names = combine(subjects, allTopics) { s, t -> s to t }
+
+    val state = combine(
+        combine(library.observeInbox(), library.observeFiledToday(), sessionEntries) { a, b, c -> Triple(a, b, c) },
+        sessionStatus, names, justFiled,
+    ) { (inbox, today, mine), session, (subjects, topics), confirmed ->
+        fun subjectName(id: Long?) = subjects.firstOrNull { it.id == id }?.title
+        fun topic(id: Long?) = topics.firstOrNull { it.id == id }
+        val ordered = if (sessionId != null) inbox.sortedBy { if (it.sessionId == sessionId) 0 else 1 } else inbox
+        val needs = ordered.map { e ->
+            val sp = e.proposedSubjectPick(); val tp = e.proposedTopicPick()
+            InboxItem(
+                entry = e,
+                subject = (sp as? Pick.Existing)?.let { subjectName(it.id) } ?: (sp as? Pick.New)?.name,
+                topic = (tp as? Pick.Existing)?.let { topic(it.id)?.title } ?: (tp as? Pick.New)?.name,
+                newSubject = sp is Pick.New, newTopic = tp is Pick.New, canAccept = sp != null && tp != null,
+            )
+        }
+        val filedList = (if (sessionId != null) mine.filter { it.status == "FILED" } else today).map { e ->
+            val t = topic(e.topicId)
+            FiledItem(e, listOfNotNull(subjectName(t?.subjectId), t?.title).joinToString(" › "), undoable = e.autoFiled)
+        }
+        InboxUiState(
+            sessionMode = sessionId != null,
+            filing = session?.notesStatus == "PENDING",
+            failed = session?.notesStatus == "FAILED",
+            filedFromSession = mine.count { it.status == "FILED" },
+            waitingFromSession = mine.count { it.status == "INBOX" },
+            needs = needs, confirmations = confirmed, filed = filedList,
+        )
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), InboxUiState())
+
+    private fun confirm(e: EntryEntity, topicId: Long) {
+        viewModelScope.launch {
+            val t = library.topic(topicId)
+            justFiled.value = justFiled.value + (e.id to "Filed \"${e.title}\" under ${t?.title ?: "its topic"}.")
+        }
+    }
 
     /** One-tap accept of the butler's proposal (only offered when both subject and topic are proposed). */
     fun accept(e: EntryEntity) {
         val s = e.proposedSubjectPick() ?: return
         val t = e.proposedTopicPick() ?: return
-        act("Filed") { library.accept(e.id, s, t) }
+        act { confirm(e, library.accept(e.id, s, t)) }
     }
 
-    fun file(e: EntryEntity, c: FilingChoice) = act("Filed") { library.accept(e.id, c.subject, c.topic, c.type, c.privacy) }
-    fun reject(e: EntryEntity) = act("Rejected") { library.deleteEntry(e.id) }
+    fun file(e: EntryEntity, c: FilingChoice) = act { confirm(e, library.accept(e.id, c.subject, c.topic, c.type, c.privacy)) }
+    fun reject(e: EntryEntity) = act("Discarded") { library.deleteEntry(e.id) }
     fun undo(e: EntryEntity) = act("Moved back to the Inbox") { library.undoFiling(e.id) }
 }
 
 @HiltViewModel
-class LibraryViewModel @Inject constructor(library: LibraryRepository) : LibraryBaseViewModel(library) {
-    val unassigned = library.observeUnassignedTopics().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
-    val inboxCount = library.observeInboxCount().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), 0)
+class LibraryViewModel @Inject constructor(
+    library: LibraryRepository,
+    private val index: SearchIndex,
+) : LibraryBaseViewModel(library) {
+    private val query = MutableStateFlow("")
+    private val filter = MutableStateFlow<Privacy?>(null)
+
+    @OptIn(kotlinx.coroutines.FlowPreview::class, kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    private val results = query.debounce(200).mapLatest { q ->
+        if (q.isBlank()) emptyList() else runCatching { index.search(q) }.getOrDefault(emptyList())
+    }
+
+    private val data = combine(library.observeSubjects(), library.observeAllTopics(), library.observeTopicCounts(), filter) { subjects, topics, counts, f ->
+        val all = LibraryUi.tiles(topics, subjects, counts)
+        val tiles = LibraryUi.tiles(topics, subjects, counts, f)
+        val tileIds = tiles.associateBy { it.id }
+        LibraryUiState(
+            topicCount = topics.size,
+            entryCount = all.sumOf { it.entries },
+            filter = f,
+            shelves = LibraryUi.shelves(subjects, topics, tiles, f),
+            unassigned = topics.filter { it.subjectId == null }.mapNotNull { tileIds[it.id] },
+        )
+    }
+
+    val state = combine(data, query, results) { d, q, r -> d.copy(query = q, results = r) }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), LibraryUiState())
+
+    fun setQuery(q: String) { query.value = q }
+    fun setFilter(p: Privacy?) { filter.value = p }
     fun createSubject(name: String) = act("Subject created") { library.createSubject(name) }
 }
 
@@ -76,6 +154,8 @@ class SubjectViewModel @Inject constructor(savedState: SavedStateHandle, library
     val subjectId: Long = checkNotNull(savedState["subjectId"])
     val subject = library.observeSubject(subjectId).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
     val topics = library.observeTopics(subjectId).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+    val tiles = combine(library.observeAllTopics(), library.observeSubjects(), library.observeTopicCounts()) { t, s, c -> LibraryUi.tiles(t, s, c) }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     fun rename(name: String) = act("Renamed") { library.renameSubject(subjectId, name) }
     fun mergeInto(targetId: Long, onDone: () -> Unit) = act("Merged", onDone) { library.mergeSubjects(subjectId, targetId) }

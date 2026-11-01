@@ -8,6 +8,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
@@ -27,6 +28,8 @@ fun MarkdownView(markdown: String, modifier: Modifier = Modifier) {
                     Text(inline("• " + line.trimStart().drop(2)), style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(start = (8 + 16 * indent).dp))
                 }
                 line.isBlank() -> Text("", style = MaterialTheme.typography.bodySmall)
+                line.length > 2 && line.startsWith("_") && line.endsWith("_") ->
+                    Text(line.trim('_'), style = MaterialTheme.typography.bodyMedium.copy(fontStyle = FontStyle.Italic), color = MaterialTheme.colorScheme.onSurfaceVariant)
                 else -> Text(inline(line), style = MaterialTheme.typography.bodyMedium)
             }
         }
