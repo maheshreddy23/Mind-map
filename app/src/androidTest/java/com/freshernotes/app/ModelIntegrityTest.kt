@@ -26,7 +26,7 @@ class ModelIntegrityTest {
     private val model = File(context.filesDir, "models/whisper/ggml-tiny.en.bin")
 
     @Test
-    fun cleanModelMatchesOfficialChecksum() = runBlocking {
+    fun cleanModelMatchesOfficialChecksum() = runBlocking<Unit> {
         model.delete()
         TestModels.copyTo("ggml-tiny.en.bin", model)
         val result = ModelStore(context).verify(ModelKind.WHISPER)
@@ -45,7 +45,7 @@ class ModelIntegrityTest {
 
     /** A hole over tensor headers: reproduces the device error and must carry the re-download hint. */
     @Test
-    fun holeOverTensorHeadersFailsWithHint() = runBlocking {
+    fun holeOverTensorHeadersFailsWithHint() = runBlocking<Unit> {
         model.delete()
         TestModels.copyTo("ggml-tiny.en.bin", model)
         punchHole(0.8) // verified on host: "unknown tensor '' in model file"
@@ -59,7 +59,7 @@ class ModelIntegrityTest {
 
     /** A hole inside one tensor's data loads without error (silent corruption): only the checksum catches it. */
     @Test
-    fun holeInsideTensorDataIsCaughtOnlyByChecksum() = runBlocking {
+    fun holeInsideTensorDataIsCaughtOnlyByChecksum() = runBlocking<Unit> {
         model.delete()
         TestModels.copyTo("ggml-tiny.en.bin", model)
         punchHole(0.5) // verified on host: loads successfully despite the damage
