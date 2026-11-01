@@ -1,5 +1,41 @@
 # Progress
 
+## v2 (docs/requirements-v2.md)
+
+| Phase | Scope | Status |
+|---|---|---|
+| 1 | Data model and filing: subjects, topics, entries, types, privacy, Inbox, delete and regenerate, no "General" | In review (CI) |
+| 2 | Butler persona, onboarding, modes; in-app model downloader + Full/Sealed flavours | Not started |
+| 3 | Ask the library: embeddings, semantic search, cited answers | Not started |
+| 4 | Nudges | Not started |
+| 5 | Privacy: sensitivity guard, app lock, encryption, backup | Not started |
+| 6 | Design pass | Not started |
+| 7 | Sharing | Not started |
+
+**v1 baseline on the OnePlus 13R (reported 1 Nov 2026):** whisper small.en at 0.48× real time; warm first LLM token 1848 ms at 12.4 tok/s; the transcript-latency fix confirmed working. First token is only ~150 ms under the 2 s target, so later phases must keep the persona/journal as a cached prompt prefix.
+
+### v2 phase 1: data model and filing
+Built:
+- Room v3 schema: new `subjects` and `entries` tables; `topics` gains `subjectId`, `summary`, `legacyMarkdown`. Schemas 2 and 3 are committed in `app/schemas` (2.json exported from the v1 build on main).
+- `MIGRATION_2_3`, non-destructive. v1 session notes are split into typed entries (Key concepts + Procedures + Reasons → Knowledge, Pitfalls → Lesson, Open questions → Open question). A v1 topic goes under a subject only if a strict keyword guess is confident **and** the subject is one named in the spec (Jigs and Fixtures, PLM, Project Management, Personal Finance, Life); those entries are filed and appear in "Filed today" with Undo. Everything else goes to the Inbox, pre-filled with the v1 topic and the best guess. Sessions, turns and the v1 notes column are untouched; each v1 topic page is kept verbatim in `legacyMarkdown` (hand edits included) and shown on the topic page until you discard it.
+- `:core` `library` package: `EntryType`, `Privacy` (default Private), `CatchAll` guard, `FilingPrompts`/`FilingParser`/`FilingPolicy`, `LegacyNotes`/`SubjectClassifier`/`LegacyPlanner`, `PageBuilder`.
+- Wrap-up filing (`SessionFiler`, replaces `NoteGenerator`): the LLM splits the session into entries with subject, topic, type, confidence and privacy. Auto-filed only if the model is confident and both subject and topic already exist; new subjects/topics always go to the Inbox; catch-all names are dropped; the model can only tighten privacy. Unparseable output still becomes one Inbox entry.
+- `LibraryRepository`: accept / change / reject / undo; move, split (move to a new topic), merge, rename and delete for entries, topics and subjects; delete a junk session completely. Each change rebuilds the affected topic pages (grouped by type, numbered, de-duplicated) and FTS5 documents. Deleting a topic sends its entries to the Inbox unless you choose "Delete topic and entries".
+- Screens: Library (subjects → topics, "Needs a subject"), Subject, Topic (page, entries, v1 page, Rewrite summary via LLM, export), Entry (edit, type, privacy, move, delete), Inbox (Accept / Change / Reject, Filed today with Undo). Home links to Library and Inbox; search covers entries. Settings: privacy for new entries.
+- Version 0.2.0 (versionCode 2).
+
+Tests:
+- JVM (`:core`): `FilingTest` (11), `LegacyAndPageTest` (5), `LegacyPlannerTest` (1); all pass locally.
+- Instrumented: `MigrationTest` (3: real v1 data through `MigrationTestHelper` with schema validation, empty DB, full chain), `LibraryTest` (7: filing with a scripted model, Inbox, move/split/merge/rename/delete, junk-session delete, FTS5, export), `DatabaseTest` (1). Emulator tests run in CI only (no KVM in the dev container).
+
+Known limitations:
+- Filing quality depends on the model; Qwen2.5-0.5B (CI) does not follow the entry format reliably, which is why filing is tested with a scripted model. Expect more Inbox items with 3B than with a larger model.
+- The page "rewrite" is deterministic (group, number, de-duplicate); the LLM only writes the optional summary paragraph on request.
+- Butler-suggested links between topics (§6.4) are not in this phase.
+- Topic export is manual only; v1 auto-exported every page to Documents, which would put Private entries in shared storage.
+
+# v1
+
 | Phase | Scope | Status |
 |---|---|---|
 | 1 | Project skeleton, Compose UI shell, Room database, CI workflow | ✅ CI green |

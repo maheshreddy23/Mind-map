@@ -50,6 +50,4 @@ class SessionRepository @Inject constructor(
     }
 
     suspend fun pendingNotes(): List<SessionEntity> = sessionDao.pendingNotes()
-
-    fun sessionsForTopic(topicId: Long): Flow<List<SessionEntity>> = sessionDao.observeForTopic(topicId)
 }

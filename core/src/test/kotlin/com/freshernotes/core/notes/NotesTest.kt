@@ -37,7 +37,7 @@ class NotesTest {
     }
 
     @Test
-    fun fallsBackWhenTopicMissing() = assertEquals("General", NoteParser.parse("## Key concepts\n- x").topic)
+    fun fallsBackWhenTopicMissingWithoutACatchAll() = assertEquals("Untitled session", NoteParser.parse("## Key concepts\n- x").topic)
 
     @Test
     fun markdownHasAllRequiredSections() {

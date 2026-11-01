@@ -75,7 +75,7 @@ object NotePrompts {
 
 /** Parses the LLM's notes output; tolerant of missing sections, numbering and heading variants. */
 object NoteParser {
-    fun parse(raw: String, fallbackTopic: String = "General"): SessionNote {
+    fun parse(raw: String, fallbackTopic: String = "Untitled session"): SessionNote {
         var topic: String? = null
         var subtopics = emptyList<String>()
         val sections = LinkedHashMap<Section, MutableList<String>>()

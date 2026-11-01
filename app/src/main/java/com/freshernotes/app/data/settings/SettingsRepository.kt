@@ -10,6 +10,7 @@ import androidx.datastore.preferences.preferencesDataStore
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
+import com.freshernotes.core.library.Privacy
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -26,6 +27,8 @@ data class AppSettings(
     val voice: String = "piper",
     /** Speech rate multiplier for TTS. */
     val speechRate: Float = 1.0f,
+    /** Privacy level given to new entries (v2 decision 4: Private). */
+    val defaultPrivacy: Privacy = Privacy.DEFAULT,
 )
 
 @Singleton
@@ -36,6 +39,7 @@ class SettingsRepository @Inject constructor(@ApplicationContext private val con
         val continuous = booleanPreferencesKey("continuous")
         val voice = stringPreferencesKey("voice")
         val speechRate = intPreferencesKey("speech_rate_pct")
+        val defaultPrivacy = stringPreferencesKey("default_privacy")
     }
 
     val settings: Flow<AppSettings> = context.dataStore.data.map { it.toSettings() }
@@ -46,6 +50,7 @@ class SettingsRepository @Inject constructor(@ApplicationContext private val con
         continuousMode = this[Keys.continuous] ?: false,
         voice = this[Keys.voice] ?: "piper",
         speechRate = (this[Keys.speechRate] ?: 100) / 100f,
+        defaultPrivacy = Privacy.parse(this[Keys.defaultPrivacy]) ?: Privacy.DEFAULT,
     )
 
     suspend fun update(transform: (AppSettings) -> AppSettings) {
@@ -56,6 +61,7 @@ class SettingsRepository @Inject constructor(@ApplicationContext private val con
             prefs[Keys.continuous] = next.continuousMode
             prefs[Keys.voice] = next.voice
             prefs[Keys.speechRate] = (next.speechRate * 100).toInt().coerceIn(50, 200)
+            prefs[Keys.defaultPrivacy] = next.defaultPrivacy.name
         }
     }
 }

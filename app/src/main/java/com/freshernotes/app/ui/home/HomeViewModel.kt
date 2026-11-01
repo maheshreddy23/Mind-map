@@ -3,7 +3,7 @@ package com.freshernotes.app.ui.home
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.freshernotes.app.data.SessionRepository
-import com.freshernotes.app.data.TopicRepository
+import com.freshernotes.app.data.LibraryRepository
 import com.freshernotes.app.models.ModelStore
 import com.freshernotes.app.search.SearchHit
 import com.freshernotes.app.search.SearchIndex
@@ -26,12 +26,13 @@ import javax.inject.Inject
 @HiltViewModel
 class HomeViewModel @Inject constructor(
     private val sessions: SessionRepository,
-    topics: TopicRepository,
+    library: LibraryRepository,
     models: ModelStore,
     private val index: SearchIndex,
 ) : ViewModel() {
-    val topics = topics.topics().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+    val topics = library.observeAllTopics().map { it.take(8) }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
     val recent = sessions.recentSessions().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+    val inboxCount = library.observeInboxCount().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), 0)
     val missingModels = models.installed.map { installed -> com.freshernotes.app.models.ModelKind.entries.filter { it.required && it !in installed } }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 

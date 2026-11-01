@@ -3,7 +3,7 @@ package com.freshernotes.app.di
 import android.content.Context
 import androidx.room.Room
 import com.freshernotes.app.data.db.AppDatabase
-import com.freshernotes.app.data.db.MIGRATION_1_2
+import com.freshernotes.app.data.db.ALL_MIGRATIONS
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -18,9 +18,11 @@ object DatabaseModule {
     @Singleton
     fun database(@ApplicationContext context: Context): AppDatabase =
         Room.databaseBuilder(context, AppDatabase::class.java, "fresher.db")
-            .addMigrations(MIGRATION_1_2)
+            .addMigrations(*ALL_MIGRATIONS)
             .build()
 
+    @Provides fun subjectDao(db: AppDatabase) = db.subjectDao()
+    @Provides fun entryDao(db: AppDatabase) = db.entryDao()
     @Provides fun topicDao(db: AppDatabase) = db.topicDao()
     @Provides fun sessionDao(db: AppDatabase) = db.sessionDao()
     @Provides fun turnDao(db: AppDatabase) = db.turnDao()

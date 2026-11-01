@@ -45,6 +45,16 @@ fun SettingsScreen(
             Slider(value = s.speechRate, onValueChange = { v -> vm.update { it.copy(speechRate = v) } }, valueRange = 0.5f..2f)
             HorizontalDivider()
 
+            Header("Library")
+            Text("Privacy for new entries")
+            Row {
+                com.freshernotes.core.library.Privacy.entries.forEach { p ->
+                    FilterChip(selected = s.defaultPrivacy == p, onClick = { vm.update { it.copy(defaultPrivacy = p) } }, label = { Text(p.label) })
+                    Text("  ")
+                }
+            }
+            HorizontalDivider()
+
             Header("Fresher")
             Text("Max reply length: ${s.maxReplyWords} words")
             Slider(

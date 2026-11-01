@@ -11,7 +11,8 @@ import com.freshernotes.app.device.DeviceMonitor
 import com.freshernotes.app.di.ApplicationScope
 import com.freshernotes.app.engine.EngineStatus
 import com.freshernotes.app.engine.Engines
-import com.freshernotes.app.notes.NoteGenerator
+import com.freshernotes.app.data.LibraryRepository
+import com.freshernotes.app.library.SessionFiler
 import com.freshernotes.app.session.ConversationController
 import com.freshernotes.app.session.FresherState
 import com.freshernotes.core.llm.Persona
@@ -39,7 +40,8 @@ class SessionViewModel @Inject constructor(
     private val settings: SettingsRepository,
     private val speech: SpeechInput,
     private val conversation: ConversationController,
-    private val notes: NoteGenerator,
+    private val filer: SessionFiler,
+    private val library: LibraryRepository,
     private val device: DeviceMonitor,
     private val engines: Engines,
     @ApplicationScope private val appScope: CoroutineScope,
@@ -48,6 +50,8 @@ class SessionViewModel @Inject constructor(
 
     val session = sessions.observeSession(sessionId).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
     val turns = sessions.observeTurns(sessionId).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+    /** Entries this session produced (after wrap-up). */
+    val entries = library.observeSessionEntries(sessionId).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
     val listenState: StateFlow<ListenState> = speech.state
     val fresherState: StateFlow<FresherState> = conversation.state
     val engineStatus: StateFlow<EngineStatus> = engines.status
@@ -116,7 +120,21 @@ class SessionViewModel @Inject constructor(
         speech.stop()
         sessions.endSession(sessionId)
         // Runs in the application scope so it completes even if the user leaves the screen.
-        appScope.launch { notes.generate(sessionId) }
+        appScope.launch { filer.file(sessionId) }
+    }
+
+    /** Retry filing after a failure. */
+    fun retryFiling() {
+        appScope.launch { filer.file(sessionId) }
+    }
+
+    /** v2 §6.4: delete a test or junk session completely (turns, entries, search). */
+    fun deleteSession(onDone: () -> Unit) {
+        speech.stop()
+        appScope.launch {
+            library.deleteSessionCompletely(sessionId)
+            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) { onDone() }
+        }
     }
 
     override fun onCleared() {

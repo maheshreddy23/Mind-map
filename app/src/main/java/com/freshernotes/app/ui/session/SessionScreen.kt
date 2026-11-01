@@ -52,10 +52,14 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.freshernotes.app.data.db.TurnEntity
 import com.freshernotes.app.ui.BackTopBar
+import com.freshernotes.app.ui.ConfirmDialog
+import androidx.compose.foundation.clickable
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.runtime.remember
 import com.freshernotes.core.Speaker
 
 @Composable
-fun SessionScreen(onBack: () -> Unit, onOpenTopic: (Long) -> Unit, vm: SessionViewModel = hiltViewModel()) {
+fun SessionScreen(onBack: () -> Unit, onOpenEntry: (Long) -> Unit, onOpenInbox: () -> Unit, vm: SessionViewModel = hiltViewModel()) {
     val session by vm.session.collectAsStateWithLifecycle()
     val turns by vm.turns.collectAsStateWithLifecycle()
     val ended = session?.endedAt != null
@@ -72,10 +76,21 @@ fun SessionScreen(onBack: () -> Unit, onOpenTopic: (Long) -> Unit, vm: SessionVi
     val requestMic = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         if (granted) vm.toggleMic()
     }
+    var confirmDelete by remember { mutableStateOf(false) }
+    if (confirmDelete) {
+        ConfirmDialog(
+            title = "Delete this session?",
+            text = "The transcript and every entry filed from it are removed for good. Use this for test or junk sessions.",
+            confirm = "Delete",
+            onConfirm = { confirmDelete = false; vm.deleteSession(onBack) },
+            onDismiss = { confirmDelete = false },
+        )
+    }
     Scaffold(
         topBar = {
             BackTopBar(session?.title ?: "Session", onBack) {
                 if (!ended) TextButton(onClick = vm::wrapUp) { Text("Wrap up") }
+                IconButton(onClick = { confirmDelete = true }) { Icon(Icons.Default.Delete, contentDescription = "Delete session") }
             }
         },
     ) { padding ->
@@ -91,19 +106,8 @@ fun SessionScreen(onBack: () -> Unit, onOpenTopic: (Long) -> Unit, vm: SessionVi
             val warning by vm.deviceWarning.collectAsStateWithLifecycle()
             warning?.let { Text(it, Modifier.padding(horizontal = 16.dp, vertical = 4.dp), color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
             session?.takeIf { ended }?.let { s ->
-                Card(Modifier.fillMaxWidth().padding(12.dp)) {
-                    Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Text(
-                            when (s.notesStatus) {
-                                "DONE" -> "Notes saved."
-                                "FAILED" -> "Notes could not be generated; they will be retried on next launch."
-                                else -> "Arjun is writing up the notes…"
-                            },
-                            Modifier.weight(1f),
-                        )
-                        s.topicId?.let { tid -> TextButton(onClick = { onOpenTopic(tid) }) { Text("Open notes") } }
-                    }
-                }
+                val entries by vm.entries.collectAsStateWithLifecycle()
+                FilingCard(s.notesStatus, entries, onOpenEntry, onOpenInbox, onRetry = vm::retryFiling)
             }
             if (!ended) {
                 val listen by vm.listenState.collectAsStateWithLifecycle()
@@ -243,6 +247,41 @@ private fun TypedInput(onSend: (String) -> Unit) {
         )
         IconButton(onClick = { onSend(text); text = "" }) {
             Icon(Icons.AutoMirrored.Filled.Send, contentDescription = "Send")
+        }
+    }
+}
+
+@Composable
+private fun FilingCard(
+    status: String,
+    entries: List<com.freshernotes.app.data.db.EntryEntity>,
+    onOpenEntry: (Long) -> Unit,
+    onOpenInbox: () -> Unit,
+    onRetry: () -> Unit,
+) {
+    Card(Modifier.fillMaxWidth().padding(12.dp)) {
+        Column(Modifier.padding(12.dp)) {
+            val filed = entries.filter { it.status == "FILED" }
+            val inbox = entries.size - filed.size
+            Text(
+                when (status) {
+                    "DONE" -> if (entries.isEmpty()) "Nothing to file." else "Filed ${filed.size}, ${inbox} waiting in the Inbox."
+                    "FAILED" -> "Filing failed. It is retried on next launch."
+                    else -> "Filing this session…"
+                },
+                style = MaterialTheme.typography.titleSmall,
+            )
+            entries.forEach { e ->
+                Text(
+                    (if (e.status == "FILED") "✓ " else "? ") + e.title,
+                    Modifier.fillMaxWidth().clickable { onOpenEntry(e.id) }.padding(vertical = 4.dp),
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+            }
+            Row {
+                if (inbox > 0) TextButton(onClick = onOpenInbox) { Text("Open Inbox") }
+                if (status == "FAILED") TextButton(onClick = onRetry) { Text("Retry now") }
+            }
         }
     }
 }

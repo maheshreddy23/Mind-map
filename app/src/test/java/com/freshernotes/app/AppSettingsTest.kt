@@ -12,4 +12,7 @@ class AppSettingsTest {
         assertTrue("persona requires replies under 40 words", s.maxReplyWords <= 40)
         assertEquals(1, s.questionEveryNTurns)
     }
+
+    @Test
+    fun newEntriesArePrivateByDefault() = assertEquals(com.freshernotes.core.library.Privacy.PRIVATE, AppSettings().defaultPrivacy)
 }

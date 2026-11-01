@@ -11,7 +11,7 @@ import java.io.File
 import javax.inject.Inject
 import javax.inject.Singleton
 
-enum class DocKind { TOPIC, SESSION }
+enum class DocKind { TOPIC, SESSION, ENTRY }
 
 data class SearchHit(val kind: DocKind, val refId: Long, val title: String, val snippet: String)
 

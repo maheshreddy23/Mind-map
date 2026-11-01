@@ -37,6 +37,9 @@ import com.freshernotes.app.ui.formatTime
 fun HomeScreen(
     onOpenSession: (Long) -> Unit,
     onOpenTopic: (Long) -> Unit,
+    onOpenEntry: (Long) -> Unit,
+    onOpenLibrary: () -> Unit,
+    onOpenInbox: () -> Unit,
     onOpenSettings: () -> Unit,
     vm: HomeViewModel = hiltViewModel(),
 ) {
@@ -45,6 +48,7 @@ fun HomeScreen(
     val query by vm.query.collectAsStateWithLifecycle()
     val results by vm.results.collectAsStateWithLifecycle()
     val missing by vm.missingModels.collectAsStateWithLifecycle()
+    val inboxCount by vm.inboxCount.collectAsStateWithLifecycle()
     Scaffold(
         topBar = {
             TopAppBar(
@@ -91,16 +95,37 @@ fun HomeScreen(
                     ListItem(
                         headlineContent = { Text(hit.title) },
                         supportingContent = { Text(hit.snippet.replace("**", "")) },
-                        overlineContent = { Text(if (hit.kind == DocKind.TOPIC) "Topic" else "Session") },
+                        overlineContent = {
+                            Text(when (hit.kind) { DocKind.TOPIC -> "Topic"; DocKind.ENTRY -> "Entry"; DocKind.SESSION -> "Session" })
+                        },
                         modifier = Modifier.clickable {
-                            if (hit.kind == DocKind.TOPIC) onOpenTopic(hit.refId) else onOpenSession(hit.refId)
+                            when (hit.kind) {
+                                DocKind.TOPIC -> onOpenTopic(hit.refId)
+                                DocKind.ENTRY -> onOpenEntry(hit.refId)
+                                DocKind.SESSION -> onOpenSession(hit.refId)
+                            }
                         },
                     )
                 }
                 item { HorizontalDivider() }
             }
-            item { SectionHeader("Topics") }
-            if (topics.isEmpty()) item { EmptyRow("No topics yet. Notes appear here after your first session.") }
+            item {
+                ListItem(
+                    headlineContent = { Text("Library") },
+                    supportingContent = { Text("Subjects, topics and entries") },
+                    modifier = Modifier.clickable(onClick = onOpenLibrary).testTag("open-library"),
+                )
+            }
+            item {
+                ListItem(
+                    headlineContent = { Text(if (inboxCount > 0) "Inbox ($inboxCount)" else "Inbox") },
+                    supportingContent = { Text(if (inboxCount > 0) "Entries waiting for your confirmation" else "Nothing waiting") },
+                    modifier = Modifier.clickable(onClick = onOpenInbox).testTag("open-inbox"),
+                )
+            }
+            item { HorizontalDivider() }
+            item { SectionHeader("Recently updated topics") }
+            if (topics.isEmpty()) item { EmptyRow("No topics yet. They appear after your first session is filed.") }
             items(topics, key = { "t${it.id}" }) { t ->
                 ListItem(
                     headlineContent = { Text(t.title) },
@@ -118,8 +143,8 @@ fun HomeScreen(
                         Text(
                             when {
                                 s.endedAt == null -> "In progress"
-                                s.notesStatus == "PENDING" -> "Writing notes…"
-                                s.notesStatus == "FAILED" -> "Notes failed (will retry on next launch)"
+                                s.notesStatus == "PENDING" -> "Filing…"
+                                s.notesStatus == "FAILED" -> "Filing failed (retried on next launch)"
                                 else -> "Ended " + formatTime(s.endedAt)
                             },
                         )

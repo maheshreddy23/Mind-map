@@ -4,10 +4,8 @@ import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.freshernotes.app.data.SessionRepository
-import com.freshernotes.app.data.TopicRepository
 import com.freshernotes.app.data.db.AppDatabase
 import com.freshernotes.core.Speaker
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -38,14 +36,5 @@ class DatabaseTest {
         assertEquals(listOf(Speaker.SENIOR, Speaker.FRESHER), turns.map { it.speaker })
         repo.endSession(id)
         assertNotNull(repo.getSession(id)?.endedAt)
-    }
-
-    @Test
-    fun topicsAreDedupedBySlug() = runTest {
-        val repo = TopicRepository(db.topicDao())
-        val a = repo.getOrCreate("Jigs & Fixtures")
-        val b = repo.getOrCreate("jigs fixtures")
-        assertEquals(a.id, b.id)
-        assertEquals(1, repo.topics().first().size)
     }
 }
