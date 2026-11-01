@@ -12,6 +12,7 @@ internal object WhisperNative {
     external fun requestAbort(ctx: Long)
     external fun transcribe(ctx: Long, samples: FloatArray, threads: Int, prompt: String?): String?
     external fun systemInfo(): String
+    external fun lastError(): String
 
     external fun vadInit(modelPath: String, threads: Int): Long
     external fun vadProbability(ctx: Long, samples: FloatArray): Float

@@ -43,7 +43,10 @@ class WhisperEngine private constructor(private var ctx: Long) : Closeable {
         fun load(model: File): WhisperEngine {
             require(model.isFile) { "Whisper model not found: $model" }
             val ctx = WhisperNative.initContext(model.absolutePath)
-            check(ctx != 0L) { "Failed to load whisper model ${model.name}" }
+            check(ctx != 0L) {
+                val reason = WhisperNative.lastError().ifBlank { "no details from whisper.cpp" }
+                "Failed to load whisper model ${model.name} (${model.length() / (1 shl 20)} MB): $reason"
+            }
             return WhisperEngine(ctx)
         }
 

@@ -4,6 +4,7 @@
 #include <vector>
 #include <thread>
 #include <atomic>
+#include <mutex>
 #include "whisper.h"
 
 #ifdef __ANDROID__
@@ -17,6 +18,25 @@
 #endif
 
 namespace {
+
+// Last warning/error printed by whisper.cpp/ggml, so Kotlin can show the real reason a load failed.
+std::mutex g_err_mutex;
+std::string g_last_error;
+
+void clearLastError() {
+    std::lock_guard<std::mutex> lock(g_err_mutex);
+    g_last_error.clear();
+}
+
+void recordError(const char *text) {
+    std::lock_guard<std::mutex> lock(g_err_mutex);
+    std::string line(text);
+    while (!line.empty() && (line.back() == '\n' || line.back() == ' ')) line.pop_back();
+    if (line.empty()) return;
+    if (!g_last_error.empty()) g_last_error += " | ";
+    g_last_error += line;
+    if (g_last_error.size() > 600) g_last_error.erase(0, g_last_error.size() - 600);
+}
 
 struct Handle {
     whisper_context *ctx = nullptr;
@@ -45,10 +65,18 @@ extern "C" {
 
 JNIEXPORT jlong JNICALL
 Java_com_freshernotes_whisper_WhisperNative_initContext(JNIEnv *env, jobject, jstring jpath) {
+    clearLastError();
     const char *path = env->GetStringUTFChars(jpath, nullptr);
     whisper_context_params cparams = whisper_context_default_params();
     cparams.use_gpu = false;
-    whisper_context *ctx = whisper_init_from_file_with_params(path, cparams);
+    whisper_context *ctx = nullptr;
+    try {
+        ctx = whisper_init_from_file_with_params(path, cparams);
+    } catch (const std::exception &e) {
+        recordError(e.what());
+    } catch (...) {
+        recordError("unknown C++ exception while loading the model");
+    }
     env->ReleaseStringUTFChars(jpath, path);
     if (ctx == nullptr) {
         LOGE("failed to load whisper model");
@@ -122,6 +150,12 @@ Java_com_freshernotes_whisper_WhisperNative_transcribe(
 }
 
 JNIEXPORT jstring JNICALL
+Java_com_freshernotes_whisper_WhisperNative_lastError(JNIEnv *env, jobject) {
+    std::lock_guard<std::mutex> lock(g_err_mutex);
+    return env->NewStringUTF(g_last_error.c_str());
+}
+
+JNIEXPORT jstring JNICALL
 Java_com_freshernotes_whisper_WhisperNative_systemInfo(JNIEnv *env, jobject) {
     return env->NewStringUTF(whisper_print_system_info());
 }
@@ -134,7 +168,13 @@ Java_com_freshernotes_whisper_WhisperNative_vadInit(JNIEnv *env, jobject, jstrin
     whisper_vad_context_params vparams = whisper_vad_default_context_params();
     vparams.n_threads = threads > 0 ? threads : 1;
     vparams.use_gpu = false;
-    whisper_vad_context *vctx = whisper_vad_init_from_file_with_params(path, vparams);
+    clearLastError();
+    whisper_vad_context *vctx = nullptr;
+    try {
+        vctx = whisper_vad_init_from_file_with_params(path, vparams);
+    } catch (const std::exception &e) {
+        recordError(e.what());
+    }
     env->ReleaseStringUTFChars(jpath, path);
     // whisper.cpp allocates the LSTM h/c state without clearing it; only whisper_vad_reset_state zeroes it.
     // The streaming (_no_reset) path would otherwise start from uninitialized memory.
@@ -174,7 +214,10 @@ JNIEXPORT void JNICALL
 Java_com_freshernotes_whisper_WhisperNative_installLogger(JNIEnv *, jobject) {
     // whisper/ggml log every VAD chunk at INFO; only forward warnings and errors.
     whisper_log_set([](ggml_log_level level, const char *text, void *) {
-        if (level == GGML_LOG_LEVEL_WARN || level == GGML_LOG_LEVEL_ERROR) LOGE("%s", text);
+        if (level == GGML_LOG_LEVEL_WARN || level == GGML_LOG_LEVEL_ERROR) {
+            LOGE("%s", text);
+            recordError(text);
+        }
     }, nullptr);
 }
 

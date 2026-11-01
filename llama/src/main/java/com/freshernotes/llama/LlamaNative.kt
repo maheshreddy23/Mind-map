@@ -24,4 +24,5 @@ internal object LlamaNative {
         handle: Long, prompt: String, maxTokens: Int, temperature: Float, topP: Float, seed: Int, callback: TokenCallback,
     ): Int
     external fun systemInfo(): String
+    external fun lastError(): String
 }

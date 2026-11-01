@@ -27,4 +27,13 @@ class WhisperEngineTest {
             assertTrue("unexpected transcript: $text", normalized.contains("ask not what your country can do for you"))
         }
     }
+
+    @Test
+    fun loadFailureReportsWhisperReason() {
+        val ctx = InstrumentationRegistry.getInstrumentation().targetContext
+        val junk = java.io.File(ctx.cacheDir, "not-a-model.bin").apply { writeBytes(ByteArray(4096) { 7 }) }
+        val error = runCatching { WhisperEngine.load(junk) }.exceptionOrNull()
+        assertTrue("expected a load failure", error is IllegalStateException)
+        assertTrue("reason missing: ${error?.message}", error!!.message!!.contains("bad magic"))
+    }
 }

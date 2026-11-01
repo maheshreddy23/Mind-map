@@ -4,6 +4,7 @@
 #include <jni.h>
 #include <algorithm>
 #include <atomic>
+#include <mutex>
 #include <string>
 #include <vector>
 #include "llama.h"
@@ -19,6 +20,24 @@
 #endif
 
 namespace {
+
+std::mutex g_err_mutex;
+std::string g_last_error;
+
+void clearLastError() {
+    std::lock_guard<std::mutex> lock(g_err_mutex);
+    g_last_error.clear();
+}
+
+void recordError(const char *text) {
+    std::lock_guard<std::mutex> lock(g_err_mutex);
+    std::string line(text);
+    while (!line.empty() && (line.back() == '\n' || line.back() == ' ')) line.pop_back();
+    if (line.empty()) return;
+    if (!g_last_error.empty()) g_last_error += " | ";
+    g_last_error += line;
+    if (g_last_error.size() > 600) g_last_error.erase(0, g_last_error.size() - 600);
+}
 
 struct Session {
     llama_model *model = nullptr;
@@ -106,17 +125,26 @@ extern "C" {
 JNIEXPORT void JNICALL
 Java_com_freshernotes_llama_LlamaNative_backendInit(JNIEnv *, jobject) {
     llama_log_set([](ggml_log_level level, const char *text, void *) {
-        if (level == GGML_LOG_LEVEL_WARN || level == GGML_LOG_LEVEL_ERROR) LOGE("%s", text);
+        if (level == GGML_LOG_LEVEL_WARN || level == GGML_LOG_LEVEL_ERROR) {
+            LOGE("%s", text);
+            recordError(text);
+        }
     }, nullptr);
     llama_backend_init();
 }
 
 JNIEXPORT jlong JNICALL
 Java_com_freshernotes_llama_LlamaNative_load(JNIEnv *env, jobject, jstring jpath, jint nCtx, jint threads) {
+    clearLastError();
     const std::string path = fromJString(env, jpath);
     llama_model_params mparams = llama_model_default_params();
     mparams.n_gpu_layers = 0;
-    llama_model *model = llama_model_load_from_file(path.c_str(), mparams);
+    llama_model *model = nullptr;
+    try {
+        model = llama_model_load_from_file(path.c_str(), mparams);
+    } catch (const std::exception &e) {
+        recordError(e.what());
+    }
     if (model == nullptr) {
         LOGE("failed to load model %s", path.c_str());
         return 0;
@@ -128,7 +156,12 @@ Java_com_freshernotes_llama_LlamaNative_load(JNIEnv *env, jobject, jstring jpath
     cparams.n_threads = threads;
     cparams.n_threads_batch = threads;
     cparams.no_perf = true;
-    llama_context *ctx = llama_init_from_model(model, cparams);
+    llama_context *ctx = nullptr;
+    try {
+        ctx = llama_init_from_model(model, cparams);
+    } catch (const std::exception &e) {
+        recordError(e.what());
+    }
     if (ctx == nullptr) {
         LOGE("failed to create context");
         llama_model_free(model);
@@ -259,6 +292,12 @@ Java_com_freshernotes_llama_LlamaNative_generate(
     llama_sampler_free(smpl);
     env->DeleteLocalRef(cbClass);
     return generated;
+}
+
+JNIEXPORT jstring JNICALL
+Java_com_freshernotes_llama_LlamaNative_lastError(JNIEnv *env, jobject) {
+    std::lock_guard<std::mutex> lock(g_err_mutex);
+    return env->NewStringUTF(g_last_error.c_str());
 }
 
 JNIEXPORT jstring JNICALL

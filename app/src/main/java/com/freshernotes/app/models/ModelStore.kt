@@ -4,6 +4,7 @@ import android.content.Context
 import android.net.Uri
 import android.provider.OpenableColumns
 import androidx.documentfile.provider.DocumentFile
+import com.freshernotes.core.ModelFileCheck
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -15,11 +16,20 @@ import javax.inject.Inject
 import javax.inject.Singleton
 
 /** Model slots the app needs. Files are copied from user storage (SAF) into app-private storage. */
-enum class ModelKind(val label: String, val required: Boolean, val isDirectory: Boolean, val hint: String) {
-    WHISPER("Speech-to-text (whisper)", true, false, "ggml-base.en.bin or ggml-small.en.bin"),
-    VAD("Voice activity detection (Silero)", false, false, "ggml-silero-v5.1.2.bin (optional; energy VAD otherwise)"),
-    LLM("Language model (GGUF)", true, false, "qwen2.5-3b-instruct-q4_k_m.gguf"),
-    TTS("Piper voice (folder)", false, true, "folder with *.onnx, tokens.txt and espeak-ng-data/ (optional; Android TTS otherwise)"),
+enum class ModelKind(
+    val label: String,
+    val required: Boolean,
+    val isDirectory: Boolean,
+    val hint: String,
+    val format: ModelFileCheck.Format,
+) {
+    WHISPER("Speech-to-text (whisper)", true, false, "ggml-base.en.bin or ggml-small.en.bin", ModelFileCheck.Format.GGML),
+    VAD("Voice activity detection (Silero)", false, false, "ggml-silero-v5.1.2.bin (optional; energy VAD otherwise)", ModelFileCheck.Format.GGML),
+    LLM("Language model (GGUF)", true, false, "qwen2.5-3b-instruct-q4_k_m.gguf", ModelFileCheck.Format.GGUF),
+    TTS(
+        "Piper voice (folder)", false, true,
+        "folder with *.onnx, tokens.txt and espeak-ng-data/ (optional; Android TTS otherwise)", ModelFileCheck.Format.ONNX_FOLDER,
+    ),
 }
 
 data class ImportProgress(val kind: ModelKind, val copiedBytes: Long, val totalBytes: Long)
@@ -73,6 +83,12 @@ class ModelStore @Inject constructor(@ApplicationContext private val context: Co
                         }
                     }
                 }
+            }
+            if (!kind.isDirectory) {
+                val file = requireNotNull(staging.listFiles()?.firstOrNull()) { "Nothing was copied" }
+                val header = file.inputStream().use { input -> ByteArray(16).let { b -> b.copyOf(maxOf(0, input.read(b))) } }
+                val result = ModelFileCheck.check(kind.format, header, file.length(), file.name)
+                if (result is ModelFileCheck.Result.Bad) throw IllegalArgumentException(result.message)
             }
             target.deleteRecursively()
             check(staging.renameTo(target)) { "Could not move model into place" }

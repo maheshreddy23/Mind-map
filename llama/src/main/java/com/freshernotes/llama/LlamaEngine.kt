@@ -101,7 +101,10 @@ class LlamaEngine private constructor(private var handle: Long) : Closeable, Tok
         fun load(model: File, nCtx: Int = 4096, threads: Int = defaultThreads()): LlamaEngine {
             if (!model.isFile) throw LlmException("LLM model not found: $model")
             val handle = LlamaNative.load(model.absolutePath, nCtx, threads)
-            if (handle == 0L) throw LlmException("Failed to load ${model.name} (unsupported or corrupt GGUF?)")
+            if (handle == 0L) {
+                val reason = LlamaNative.lastError().ifBlank { "no details from llama.cpp" }
+                throw LlmException("Failed to load ${model.name} (${model.length() / (1 shl 20)} MB): $reason")
+            }
             return LlamaEngine(handle)
         }
 

@@ -31,7 +31,7 @@ class SileroVad private constructor(private var ctx: Long) : SpeechDetector, Clo
         fun load(model: File, threads: Int = 1): SileroVad {
             require(model.isFile) { "VAD model not found: $model" }
             val ctx = WhisperNative.vadInit(model.absolutePath, threads)
-            check(ctx != 0L) { "Failed to load VAD model ${model.name}" }
+            check(ctx != 0L) { "Failed to load VAD model ${model.name}: ${WhisperNative.lastError().ifBlank { "no details" }}" }
             return SileroVad(ctx)
         }
     }
