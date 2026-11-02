@@ -41,6 +41,8 @@ object Routes {
     const val HOME = "home"
     const val LIBRARY = "library"
     const val INBOX = "inbox"
+    const val ASK = "ask?q={q}"
+    const val BUTLER = "butler"
     const val RESULTS = "results/{sessionId}"
     const val SESSION = "session/{sessionId}"
     const val SUBJECT = "subject/{subjectId}"
@@ -52,8 +54,15 @@ object Routes {
     fun subject(id: Long) = "subject/$id"
     fun topic(id: Long) = "topic/$id"
     fun entry(id: Long) = "entry/$id"
+    fun ask(question: String = "") = "ask?q=" + android.net.Uri.encode(question)
 
-    val tabs = mapOf(HOME to Tab.HOME, LIBRARY to Tab.LIBRARY, INBOX to Tab.INBOX)
+    val tabs = mapOf(HOME to Tab.HOME, LIBRARY to Tab.LIBRARY, ASK to Tab.ASK, INBOX to Tab.INBOX)
+    fun tabPath(t: Tab) = when (t) {
+        Tab.HOME -> HOME
+        Tab.LIBRARY -> LIBRARY
+        Tab.ASK -> ask()
+        Tab.INBOX -> INBOX
+    }
 }
 
 private const val MOTION = 220
@@ -89,7 +98,9 @@ fun AppNavHost(talk: TalkViewModel = hiltViewModel()) {
     val current by nav.currentBackStackEntryAsState()
     val tab = Routes.tabs[current?.destination?.route]
     val inboxCount by talk.inboxCount.collectAsStateWithLifecycle()
+    val butlerName by talk.butlerName.collectAsStateWithLifecycle()
 
+    androidx.compose.runtime.CompositionLocalProvider(com.freshernotes.app.ui.components.LocalButlerName provides butlerName) {
     Column(Modifier.fillMaxSize()) {
         Box(Modifier.weight(1f)) {
             NavHost(
@@ -100,8 +111,18 @@ fun AppNavHost(talk: TalkViewModel = hiltViewModel()) {
                     HomeScreen(
                         onOpenSession = openSession, onOpenTopic = openTopic, onOpenSubject = openSubject,
                         onOpenInbox = openInbox, onOpenSettings = { nav.navigate(Routes.SETTINGS) },
+                        onOpenButler = { nav.navigate(Routes.BUTLER) },
+                        onTalkAbout = { topic -> talk.start(openSession, topic = topic) },
                     )
                 }
+                composable(Routes.ASK, arguments = listOf(navArgument("q") { type = NavType.StringType; defaultValue = "" })) { entry ->
+                    com.freshernotes.app.ui.ask.AskScreen(
+                        initialQuestion = entry.arguments?.getString("q"),
+                        onOpenEntry = openEntry,
+                        onInterview = { q -> talk.start(openSession, topic = q) },
+                    )
+                }
+                composable(Routes.BUTLER) { com.freshernotes.app.ui.butler.ButlerScreen(onBack = back) }
                 composable(Routes.LIBRARY) {
                     LibraryScreen(onOpenSubject = openSubject, onOpenTopic = openTopic, onOpenEntry = openEntry, onOpenSession = openSession, onTalk = onTalk)
                 }
@@ -121,7 +142,11 @@ fun AppNavHost(talk: TalkViewModel = hiltViewModel()) {
                     SubjectScreen(onBack = back, onOpenTopic = openTopic, onTalk = onTalk)
                 }
                 composable(Routes.TOPIC, arguments = listOf(navArgument("topicId") { type = NavType.LongType })) {
-                    TopicScreen(onBack = back, onOpenEntry = openEntry, onContinue = { title -> talk.start(openSession, topic = title) })
+                    TopicScreen(
+                        onBack = back, onOpenEntry = openEntry,
+                        onContinue = { title -> talk.start(openSession, topic = title) },
+                        onAsk = { title -> nav.navigate(Routes.ask("What have I said about $title?")) },
+                    )
                 }
                 composable(Routes.ENTRY, arguments = listOf(navArgument("entryId") { type = NavType.LongType })) {
                     EntryScreen(onBack = back, onOpenTopic = openTopic, onOpenSession = openSession)
@@ -134,10 +159,11 @@ fun AppNavHost(talk: TalkViewModel = hiltViewModel()) {
         if (tab != null) {
             MindBottomBar(
                 selected = tab, inboxCount = inboxCount,
-                onTab = { t -> nav.selectTab(Routes.tabs.entries.first { it.value == t }.key) },
+                onTab = { t -> nav.selectTab(Routes.tabPath(t)) },
                 onTalk = onTalk,
             )
         }
+    }
     }
 }
 

@@ -32,6 +32,8 @@ import com.freshernotes.app.ui.components.Avatar
 import com.freshernotes.app.ui.components.BUTLER_NAME
 import com.freshernotes.app.ui.components.Caption
 import com.freshernotes.app.ui.components.MindCard
+import com.freshernotes.app.ui.components.Pill
+import com.freshernotes.app.ui.components.PillStyle
 import com.freshernotes.app.ui.components.ScreenTitle
 import com.freshernotes.app.ui.components.SectionLabel
 import com.freshernotes.app.ui.library.LibraryUi
@@ -45,6 +47,7 @@ data class SessionRow(val id: Long, val title: String, val status: String)
 data class HomeUiState(
     val greeting: String = "Good evening",
     val missingModels: List<String> = emptyList(),
+    val nudge: com.freshernotes.core.library.Nudge? = null,
     val inboxCount: Int = 0,
     val continueTopic: TopicTile? = null,
     val shelves: List<ShelfTile> = emptyList(),
@@ -58,10 +61,12 @@ fun HomeScreen(
     onOpenSubject: (Long) -> Unit,
     onOpenInbox: () -> Unit,
     onOpenSettings: () -> Unit,
+    onOpenButler: () -> Unit = {},
+    onTalkAbout: (String?) -> Unit = {},
     vm: HomeViewModel = hiltViewModel(),
 ) {
     val state by vm.state.collectAsStateWithLifecycle()
-    HomeContent(state, onOpenSession, onOpenTopic, onOpenSubject, onOpenInbox, onOpenSettings)
+    HomeContent(state, onOpenSession, onOpenTopic, onOpenSubject, onOpenInbox, onOpenSettings, onOpenButler, onTalkAbout, vm::snoozeNudge)
 }
 
 /** design-spec §4 Home (the nudge card arrives with nudges in phase 4). */
@@ -73,6 +78,9 @@ fun HomeContent(
     onOpenSubject: (Long) -> Unit,
     onOpenInbox: () -> Unit,
     onOpenSettings: () -> Unit,
+    onOpenButler: () -> Unit = {},
+    onTalkAbout: (String?) -> Unit = {},
+    onLater: () -> Unit = {},
 ) {
     val c = Mind.colors
     LazyColumn(
@@ -86,13 +94,25 @@ fun HomeContent(
                     Text(state.greeting, style = Mind.type.label.copy(fontWeight = androidx.compose.ui.text.font.FontWeight.Normal), color = c.muted)
                     ScreenTitle("What shall we shelve today?")
                 }
-                Avatar(BUTLER_NAME, onClick = onOpenSettings)
+                Avatar(BUTLER_NAME.take(1).uppercase(), onClick = onOpenButler)
             }
         }
         if (state.missingModels.isNotEmpty()) item {
             MindCard(onClick = onOpenSettings, background = c.amberSoft, border = null) {
                 Text("Models needed", style = Mind.type.overline, color = c.amberText)
                 Text(state.missingModels.joinToString() + ". Pick them in Settings to start talking.", style = Mind.type.body, color = c.ink)
+            }
+        }
+        state.nudge?.let { n ->
+            item {
+                MindCard(background = c.amberSoft, border = null, modifier = Modifier.testTag("nudge")) {
+                    Text("${BUTLER_NAME.uppercase()} · TODAY'S NUDGE", style = Mind.type.overline.copy(fontSize = Mind.type.caption.fontSize), color = c.amberText)
+                    Text(n.text, style = Mind.type.bodyLarge.copy(fontSize = Mind.type.bodyLarge.fontSize.times(16f / 17f)), color = c.ink)
+                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Pill("Talk now", { onTalkAbout(n.talkAbout) }, style = PillStyle.INK, height = MindDimens.touch)
+                        Pill("Later", onLater, style = PillStyle.OUTLINE, height = MindDimens.touch)
+                    }
+                }
             }
         }
         if (state.inboxCount > 0) item {

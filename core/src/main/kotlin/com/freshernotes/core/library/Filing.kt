@@ -69,12 +69,17 @@ object FilingPrompts {
         }.trimEnd()
     }
 
-    fun forSession(subjects: List<SubjectRef>, summary: String, turns: List<ChatTurn>): List<ChatMessage> = listOf(
+    fun forSession(subjects: List<SubjectRef>, summary: String, turns: List<ChatTurn>, preferences: List<String> = emptyList()): List<ChatMessage> = listOf(
         ChatMessage(Role.SYSTEM, system()),
         ChatMessage(
             Role.USER,
             buildString {
                 append(library(subjects)).append("\n\n")
+                if (preferences.isNotEmpty()) {
+                    append("How the user likes things filed (from their past corrections):\n")
+                    preferences.take(8).forEach { append("- ").append(it).append('\n') }
+                    append('\n')
+                }
                 if (summary.isNotBlank()) append("Summary of the earlier part of the session:\n").append(summary.trim()).append("\n\n")
                 append("Session:\n").append(ContextManager.transcript(turns)).append("\n\nWrite the entries now.")
             },

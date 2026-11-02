@@ -131,4 +131,14 @@ class LegacyPlannerTest {
 
         assertTrue("sessions without notes produce nothing", plan.entries.none { it.sessionId == 13L })
     }
+
+    @Test
+    fun v1GeneralTopicGoesToTheInboxEvenWhenTheGuessIsConfident() {
+        val topics = listOf(LegacyTopic(1, "General", "# General\n- jig fixture datum bush clamp drill"))
+        val sessions = listOf(LegacySession(10, "s", 100, 1, note("Jig bushes guide the drill.", "Worn bushes drift.")))
+        val plan = LegacyPlanner.plan(topics, sessions)
+        assertTrue(plan.topicSubjects.isEmpty())
+        assertTrue(plan.entries.all { it.status == EntryStatus.INBOX && it.topicId == null && it.proposedSubject == "Jigs and Fixtures" })
+        assertTrue(plan.entries.first().reason.contains("catch-all"))
+    }
 }

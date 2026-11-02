@@ -64,7 +64,7 @@ class LibraryTest {
     @After
     fun tearDown() = db.close()
 
-    private fun filer() = SessionFiler(sessions, library, SettingsRepository(context), Engines(context, ModelStore(context)), index)
+    private fun filer() = SessionFiler(sessions, library, SettingsRepository(context), Engines(context, ModelStore(context)), index, com.freshernotes.app.data.ButlerRepository(context))
 
     private suspend fun session(vararg said: String): Long {
         val id = sessions.startSession("Test session")

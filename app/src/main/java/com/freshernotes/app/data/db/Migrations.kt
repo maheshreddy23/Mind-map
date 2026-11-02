@@ -15,7 +15,7 @@ import com.freshernotes.core.library.PageEntry
 import com.freshernotes.core.library.Privacy
 
 /** Every migration, in order. Never add fallbackToDestructiveMigration: user data must survive every update. */
-val ALL_MIGRATIONS: Array<Migration> by lazy { arrayOf(MIGRATION_1_2, MIGRATION_2_3) }
+val ALL_MIGRATIONS: Array<Migration> by lazy { arrayOf(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4) }
 
 /** v2: per-session notes and the topic they were merged into. */
 val MIGRATION_1_2 = object : Migration(1, 2) {
@@ -61,6 +61,53 @@ val MIGRATION_2_3 = object : Migration(2, 3) {
 
         db.execSQL("UPDATE topics SET legacyMarkdown = markdown")
         migrateV1Data(db, System.currentTimeMillis())
+        repairCatchAllTopics(db, System.currentTimeMillis())
+    }
+}
+
+/**
+ * v4: data only, no schema change. Version 3 kept v1 topics named "General" (v1's fallback topic name), which
+ * the spec forbids. Their entries go to the Inbox (no topic, the subject kept as a suggestion), the kept v1 page
+ * becomes one Inbox entry so nothing is lost, and the catch-all topic is deleted. Sessions are untouched.
+ */
+val MIGRATION_3_4 = object : Migration(3, 4) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        repairCatchAllTopics(db, System.currentTimeMillis())
+    }
+}
+
+internal fun repairCatchAllTopics(db: SupportSQLiteDatabase, now: Long) {
+    data class T(val id: Long, val title: String, val subjectId: Long?, val legacy: String)
+    val catchAll = db.query("SELECT id, title, subjectId, legacyMarkdown FROM topics").use { c ->
+        buildList { while (c.moveToNext()) add(T(c.getLong(0), c.getString(1), if (c.isNull(2)) null else c.getLong(2), c.getString(3) ?: "")) }
+    }.filter { com.freshernotes.core.library.CatchAll.isCatchAll(it.title) }
+    for (t in catchAll) {
+        val subject = t.subjectId?.let { id ->
+            db.query("SELECT title FROM subjects WHERE id = ?", arrayOf<Any>(id)).use { c -> if (c.moveToFirst()) c.getString(0) else null }
+        }
+        val reason = "Was under the catch-all topic \"${t.title}\"; choose a real topic"
+        db.update(
+            "entries", SQLiteDatabase.CONFLICT_ABORT,
+            ContentValues().apply {
+                put("status", EntryStatus.INBOX.name); putNull("topicId"); put("autoFiled", 0); putNull("filedAt")
+                putNull("proposedTopicId"); putNull("proposedTopic"); put("proposedSubjectId", t.subjectId); put("proposedSubject", subject)
+                put("reason", reason); put("updatedAt", now)
+            },
+            "topicId = ? OR proposedTopicId = ?", arrayOf<Any>(t.id, t.id),
+        )
+        if (t.legacy.isNotBlank()) {
+            db.insert(
+                "entries", SQLiteDatabase.CONFLICT_ABORT,
+                ContentValues().apply {
+                    putNull("sessionId"); putNull("topicId"); put("title", "Earlier page: ${t.title}"); put("body", t.legacy)
+                    put("type", EntryType.KNOWLEDGE.name); put("privacy", Privacy.DEFAULT.name); put("status", EntryStatus.INBOX.name)
+                    put("confidence", 0.1); put("proposedSubjectId", t.subjectId); put("proposedSubject", subject)
+                    put("reason", "The v1 page of the catch-all topic \"${t.title}\", kept so nothing is lost. Reject it if the entries cover it.")
+                    put("autoFiled", 0); put("source", EntrySource.MIGRATED); put("createdAt", now); put("updatedAt", now)
+                },
+            )
+        }
+        db.delete("topics", "id = ?", arrayOf<Any>(t.id))
     }
 }
 

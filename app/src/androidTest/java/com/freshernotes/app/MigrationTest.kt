@@ -9,6 +9,7 @@ import androidx.test.platform.app.InstrumentationRegistry
 import com.freshernotes.app.data.db.ALL_MIGRATIONS
 import com.freshernotes.app.data.db.AppDatabase
 import com.freshernotes.app.data.db.MIGRATION_2_3
+import com.freshernotes.app.data.db.MIGRATION_3_4
 import com.freshernotes.core.notes.NoteParser
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
@@ -103,6 +104,44 @@ class MigrationTest {
         }
     }
 
+    /** The phone's case: v3 kept a v1 "General" topic under a subject; v4 empties and removes it, losing nothing. */
+    @Test
+    fun catchAllTopicIsRepairedWithoutLosingAnything() {
+        helper.createDatabase(dbName, 3).use { db ->
+            db.execSQL("INSERT INTO subjects (id, slug, title, createdAt, updatedAt) VALUES (1, 'project-management', 'Project Management', 1, 1)")
+            db.execSQL("INSERT INTO topics (id, slug, title, markdown, updatedAt, subjectId, summary, legacyMarkdown) VALUES (5, 'general', 'General', '', 1, 1, '', 'HAND EDIT v1 page')")
+            db.execSQL("INSERT INTO topics (id, slug, title, markdown, updatedAt, subjectId, summary, legacyMarkdown) VALUES (6, 'kickoff', 'Kickoff', '', 1, 1, '', '')")
+            db.execSQL("INSERT INTO sessions (id, title, startedAt, endedAt, runningSummary, summarizedTurnCount, notesStatus, notesMarkdown, topicId) VALUES (1, 's', 1, 2, '', 0, 'DONE', 'n', 5)")
+            fun entry(id: Int, topic: String, status: String) = db.execSQL(
+                "INSERT INTO entries (id, sessionId, topicId, title, body, type, privacy, status, confidence, reason, autoFiled, source, createdAt, updatedAt) " +
+                    "VALUES ($id, 1, $topic, 'e$id', '- b', 'KNOWLEDGE', 'PRIVATE', '$status', 0.8, '', 1, 'MIGRATED', 1, 1)",
+            )
+            entry(1, "5", "FILED"); entry(2, "5", "FILED"); entry(3, "6", "FILED")
+        }
+        helper.runMigrationsAndValidate(dbName, 4, true, MIGRATION_3_4).use { db ->
+            fun count(sql: String) = db.query(sql).use { it.moveToFirst(); it.getInt(0) }
+            assertEquals("catch-all topic gone", 0, count("SELECT COUNT(*) FROM topics WHERE lower(title) = 'general'"))
+            assertEquals("other topics untouched", 1, count("SELECT COUNT(*) FROM entries WHERE id = 3 AND topicId = 6 AND status = 'FILED'"))
+            assertEquals("its entries wait in the Inbox", 2, count("SELECT COUNT(*) FROM entries WHERE id IN (1, 2) AND status = 'INBOX' AND topicId IS NULL AND proposedSubjectId = 1"))
+            assertEquals("v1 page kept as an Inbox entry", 1, count("SELECT COUNT(*) FROM entries WHERE status = 'INBOX' AND body LIKE '%HAND EDIT%'"))
+            assertEquals("session kept", 1, count("SELECT COUNT(*) FROM sessions"))
+        }
+    }
+
+    @Test
+    fun v1GeneralTopicNeverSurvivesTheV2Migration() {
+        helper.createDatabase(dbName, 2).use { db ->
+            db.execSQL("INSERT INTO topics (id, slug, title, markdown, updatedAt) VALUES (1, 'general', 'General', '# General\n- jig fixture datum bush clamp', 1)")
+            db.execSQL("INSERT INTO sessions (id, title, startedAt, endedAt, runningSummary, summarizedTurnCount, notesStatus, notesMarkdown, topicId) VALUES (1, 's', 1, 2, '', 0, 'DONE', '${v1Note("Jig bushes and datums.", "Worn bushes.")}', 1)")
+        }
+        helper.runMigrationsAndValidate(dbName, 4, true, *ALL_MIGRATIONS).use { db ->
+            fun count(sql: String) = db.query(sql).use { it.moveToFirst(); it.getInt(0) }
+            assertEquals(0, count("SELECT COUNT(*) FROM topics"))
+            assertEquals(0, count("SELECT COUNT(*) FROM entries WHERE status = 'FILED'"))
+            assertTrue(count("SELECT COUNT(*) FROM entries WHERE status = 'INBOX' AND sessionId = 1") >= 2)
+        }
+    }
+
     @Test
     fun emptyV1DatabaseMigrates() {
         helper.createDatabase(dbName, 2).close()
@@ -114,6 +153,6 @@ class MigrationTest {
     @Test
     fun everyVersionMigratesToTheLatest() {
         helper.createDatabase(dbName, 2).close()
-        helper.runMigrationsAndValidate(dbName, 3, true, *ALL_MIGRATIONS)
+        helper.runMigrationsAndValidate(dbName, 4, true, *ALL_MIGRATIONS)
     }
 }

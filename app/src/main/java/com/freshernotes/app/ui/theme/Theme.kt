@@ -89,6 +89,8 @@ object FocusColors {
     val idleMic = Color(0xFF1F5F5B)
     val record = Color(0xFFB3261E)
     val onMic = Color(0xFFFFFFFF)
+    val offSegment = Color(0xFFC9C5BE)
+    val transparent = Color(0x00000000)
 }
 
 val Newsreader = FontFamily(

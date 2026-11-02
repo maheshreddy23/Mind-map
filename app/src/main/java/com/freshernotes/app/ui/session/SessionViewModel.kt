@@ -64,6 +64,12 @@ class SessionViewModel @Inject constructor(
     /** Transcription timing per senior turn id, for turns spoken while this screen is open. */
     val timings: StateFlow<Map<Long, TurnTiming>> = _timings.asStateFlow()
 
+    private val _listenOnly = MutableStateFlow(false)
+    /** Listen mode (v2 §4.1): the butler stays quiet and just captures. Interview mode asks one follow-up at a time. */
+    val listenOnly: StateFlow<Boolean> = _listenOnly.asStateFlow()
+
+    fun setListenOnly(on: Boolean) { _listenOnly.value = on }
+
     /** "Please respond" signals; CONFLATED so a backlog collapses into one reply using the latest turns. */
     private val respondRequests = Channel<Unit>(Channel.CONFLATED)
 
@@ -107,7 +113,7 @@ class SessionViewModel @Inject constructor(
 
     private suspend fun onSeniorSpoke(text: String): Long {
         val id = conversation.recordSeniorTurn(sessionId, text)
-        if (Persona.isWrapUp(text)) finish() else respondRequests.trySend(Unit)
+        if (Persona.isWrapUp(text)) finish() else if (!_listenOnly.value) respondRequests.trySend(Unit)
         return id
     }
 

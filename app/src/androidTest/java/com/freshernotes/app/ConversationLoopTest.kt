@@ -65,7 +65,7 @@ class ConversationLoopTest {
     fun seniorTurnProducesSpokenQuestionAndWrapUpEnds() = runBlocking {
         val sessions = SessionRepository(db.sessionDao(), db.turnDao())
         val settings = SettingsRepository(context).apply { update { it.copy(questionEveryNTurns = 1, maxReplyWords = 40) } }
-        val controller = ConversationController(sessions, settings, engines, fakeVoice, DeviceMonitor(context), PerfStats())
+        val controller = ConversationController(sessions, settings, engines, fakeVoice, DeviceMonitor(context), PerfStats(), com.freshernotes.app.data.ButlerRepository(context))
         val id = sessions.startSession("loop test")
 
         val wrap1 = controller.onSeniorTurn(
@@ -106,7 +106,7 @@ class ConversationLoopTest {
         }
         val sessions = SessionRepository(db.sessionDao(), db.turnDao())
         val settings = SettingsRepository(context).apply { update { it.copy(questionEveryNTurns = 1, maxReplyWords = 40) } }
-        val controller = ConversationController(sessions, settings, engines, stuckVoice, DeviceMonitor(context), PerfStats())
+        val controller = ConversationController(sessions, settings, engines, stuckVoice, DeviceMonitor(context), PerfStats(), com.freshernotes.app.data.ButlerRepository(context))
         val id = sessions.startSession("stuck tts")
 
         controller.recordSeniorTurn(id, "We locate drill jigs on tooling holes so every hole lands in the same place.")

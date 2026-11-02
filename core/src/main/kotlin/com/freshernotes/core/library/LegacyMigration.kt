@@ -143,7 +143,9 @@ object LegacyPlanner {
         for (t in topics) {
             val notes = byTopic[t.id].orEmpty()
             val guess = SubjectClassifier.guess(t.title, t.markdown + "\n" + notes.joinToString("\n") { it.notesMarkdown })
-            val confident = guess?.confident == true
+            // A v1 "General" (or other catch-all) topic is never kept: its notes go to the Inbox without a topic.
+            val catchAll = CatchAll.isCatchAll(t.title)
+            val confident = guess?.confident == true && !catchAll
             if (confident) {
                 subjects += guess!!.subject
                 topicSubjects[t.id] = guess.subject
@@ -151,6 +153,7 @@ object LegacyPlanner {
             val status = if (confident) EntryStatus.FILED else EntryStatus.INBOX
             val reason = when {
                 confident -> ""
+                catchAll -> "From v1: was under the catch-all \"${t.title}\""
                 guess == null -> "From v1: subject unclear"
                 else -> "From v1: subject unclear (best guess ${guess.subject})"
             }
@@ -162,7 +165,7 @@ object LegacyPlanner {
             for ((s, p) in pieces) {
                 entries += PlannedEntry(
                     sessionId = s?.id, type = p.type, title = p.title, body = p.body, createdAt = s?.startedAt ?: 0L,
-                    status = status, topicId = t.id, proposedSubject = guess?.subject,
+                    status = status, topicId = if (catchAll) null else t.id, proposedSubject = guess?.subject,
                     confidence = if (confident) 0.8 else 0.4, reason = reason,
                 )
             }

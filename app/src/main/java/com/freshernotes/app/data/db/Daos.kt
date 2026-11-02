@@ -116,6 +116,10 @@ interface EntryDao {
     @Query("SELECT topicId, type, privacy, COUNT(*) AS n FROM entries WHERE status = 'FILED' AND topicId IS NOT NULL GROUP BY topicId, type, privacy")
     fun observeTopicCounts(): Flow<List<TopicEntryCount>>
 
+    /** The oldest filed entry (spaced-review nudge). */
+    @Query("SELECT * FROM entries WHERE status = 'FILED' ORDER BY createdAt, id LIMIT 1")
+    fun observeOldestFiled(): Flow<EntryEntity?>
+
     @Query("SELECT * FROM entries WHERE status = 'INBOX' ORDER BY createdAt DESC, id")
     fun observeInbox(): Flow<List<EntryEntity>>
 

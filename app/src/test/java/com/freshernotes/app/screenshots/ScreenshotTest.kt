@@ -80,6 +80,30 @@ class ScreenshotTest(private val dark: Boolean) {
     }
 
     @Test
+    fun sessionListen() = shot("session_listen") { SessionContent(Samples.liveSession.copy(listenOnly = true, listen = ListenState.Idle, level = 0f), {}, {}, {}, {}, {}, {}, {}, {}) }
+
+    @Test
+    fun ask() = shot("ask") {
+        androidx.compose.foundation.layout.Column {
+            androidx.compose.foundation.layout.Box(androidx.compose.ui.Modifier.weight(1f)) {
+                com.freshernotes.app.ui.ask.AskContent(Samples.ask, {}, {}, {}, {})
+            }
+            MindBottomBar(Tab.ASK, inboxCount = 1, onTab = {}, onTalk = {})
+        }
+    }
+
+    @Test
+    fun butler() = shot("butler") {
+        com.freshernotes.app.ui.butler.ButlerContent(
+            com.freshernotes.app.ui.butler.ButlerUiState(
+                true, com.freshernotes.core.llm.ButlerProfile(callsYou = "Mahesh"),
+                listOf("\"Protect timeline and budget together\" belongs under Project Management › Trade-offs, not Project Management › Risk."),
+            ),
+            remember { SnackbarHostState() }, {}, {}, {},
+        )
+    }
+
+    @Test
     fun session() = shot("session") { SessionContent(Samples.liveSession, {}, {}, {}, {}, {}, {}, {}, {}) }
 
     @Test
@@ -136,7 +160,11 @@ private object Samples {
     private val kickoff = TopicTile(1, "RFP to project kickoff", "Project Management", entries = 2, openQuestions = 1, privacies = setOf(Privacy.PRIVATE))
 
     val home = HomeUiState(
-        greeting = "Good evening",
+        greeting = "Good evening, Mahesh",
+        nudge = com.freshernotes.core.library.Nudge(
+            com.freshernotes.core.library.Nudge.Kind.UNFINISHED_TOPIC,
+            "RFP to project kickoff still has an open question. Ten minutes on it?", "RFP to project kickoff",
+        ),
         inboxCount = 1,
         continueTopic = kickoff,
         shelves = listOf(ShelfTile(1, "Project Management", 2), ShelfTile(2, "PLM", 0), ShelfTile(3, "Jigs and Fixtures", 0)),
@@ -182,6 +210,25 @@ private object Samples {
             Shelf(3, "Jigs and Fixtures", emptyList()),
         ),
         unassigned = listOf(TopicTile(5, "Weekend thoughts", null, 1, 0, setOf(Privacy.PRIVATE))),
+    )
+
+    val ask = com.freshernotes.app.ui.ask.AskUiState(
+        listOf(
+            com.freshernotes.app.ui.ask.Exchange(
+                1, "What happens after we win a bid?",
+                com.freshernotes.app.ui.ask.Reply.Answer(
+                    listOf(
+                        com.freshernotes.core.library.AnswerPart.Text("You create the project number in PLM"),
+                        com.freshernotes.core.library.AnswerPart.Cite(1, 12),
+                        com.freshernotes.core.library.AnswerPart.Text(", then a kickoff meeting assigns the teams, and CCPM allocates their tasks"),
+                        com.freshernotes.core.library.AnswerPart.Cite(2, 13),
+                        com.freshernotes.core.library.AnswerPart.Text(". You haven't yet said how CCPM settles a disputed task."),
+                    ),
+                    citedCount = 2,
+                ),
+            ),
+            com.freshernotes.app.ui.ask.Exchange(2, "What have I said about datum selection?", com.freshernotes.app.ui.ask.Reply.Nothing),
+        ),
     )
 
     val hits = listOf(

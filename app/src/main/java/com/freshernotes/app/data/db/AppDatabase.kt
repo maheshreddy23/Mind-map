@@ -6,7 +6,7 @@ import androidx.room.RoomDatabase
 /** Schema history is exported to app/schemas; migrations live in Migrations.kt. */
 @Database(
     entities = [SubjectEntity::class, TopicEntity::class, SessionEntity::class, TurnEntity::class, EntryEntity::class],
-    version = 3,
+    version = 4,
     exportSchema = true,
 )
 abstract class AppDatabase : RoomDatabase() {

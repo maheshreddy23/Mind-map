@@ -71,6 +71,26 @@ class SearchIndex internal constructor(private val file: File?) {
         }
     }
 
+    /**
+     * Any-word search over one kind of document (Ask the library): "datum" OR "selection", ranked by bm25 so
+     * documents matching more and rarer words come first. Returns ref ids.
+     */
+    suspend fun searchAny(keywords: List<String>, kind: DocKind, limit: Int = 5): List<Long> = io {
+        val terms = keywords.map { it.replace(Regex("[^\\p{L}\\p{N}]"), "") }.filter { it.isNotBlank() }
+        if (terms.isEmpty()) return@io emptyList()
+        val match = terms.joinToString(" OR ") { "\"${it.lowercase()}\"*" }
+        connection.prepare(
+            "SELECT ref_id FROM docs WHERE docs MATCH ? AND kind = ? ORDER BY bm25(docs, 0.0, 0.0, 3.0, 1.0) LIMIT ?",
+        ).use { st ->
+            st.bindText(1, match)
+            st.bindText(2, kind.name)
+            st.bindLong(3, limit.toLong())
+            val ids = ArrayList<Long>()
+            while (st.step()) ids += st.getLong(0)
+            ids
+        }
+    }
+
     suspend fun clear() = io { connection.execSQL("DELETE FROM docs") }
 
     private suspend fun <T> io(block: () -> T): T = withContext(Dispatchers.IO) { synchronized(this@SearchIndex) { block() } }

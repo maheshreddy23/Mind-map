@@ -47,6 +47,6 @@ class FresherApp : Application() {
     }
 
     private companion object {
-        const val SEARCH_INDEX_VERSION = 3
+        const val SEARCH_INDEX_VERSION = 4
     }
 }

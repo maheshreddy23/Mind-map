@@ -41,9 +41,9 @@ object Persona {
      * Small models sometimes ramble or ask several questions. Keep the first question (or the first sentence),
      * strip role prefixes and quotes, and cap the word count.
      */
-    fun cleanReply(raw: String, maxWords: Int = 40): String {
+    fun cleanReply(raw: String, maxWords: Int = 40, name: String = NAME): String {
         var t = raw.trim()
-            .replace(Regex("""^(Arjun|Fresher|Assistant)\s*:\s*""", RegexOption.IGNORE_CASE), "")
+            .replace(Regex("""^(Arjun|Fresher|Assistant|Butler|${Regex.escape(name)})\s*:\s*""", RegexOption.IGNORE_CASE), "")
             .trim('"', '\'', ' ', '\n')
         val q = t.indexOf('?')
         if (q >= 0) t = t.substring(0, q + 1)

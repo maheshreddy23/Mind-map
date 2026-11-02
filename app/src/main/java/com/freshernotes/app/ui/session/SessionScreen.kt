@@ -85,6 +85,7 @@ data class SessionTurn(val id: Long, val speaker: Speaker, val text: String, val
 data class SessionUiState(
     val title: String,
     val ended: Boolean,
+    val listenOnly: Boolean = false,
     val turns: List<SessionTurn>,
     val listen: ListenState,
     val level: Float,
@@ -108,6 +109,7 @@ fun SessionScreen(onBack: () -> Unit, onOpenResults: (Long) -> Unit, vm: Session
     val engines by vm.engineStatus.collectAsStateWithLifecycle()
     val warning by vm.deviceWarning.collectAsStateWithLifecycle()
     val entries by vm.entries.collectAsStateWithLifecycle()
+    val listenOnly by vm.listenOnly.collectAsStateWithLifecycle()
     val ended = session?.endedAt != null
     // Wrap-up (button or saying "wrap up") opens the results once, only for a session that was live on this screen.
     var wasLive by rememberSaveable { mutableStateOf(false) }
@@ -139,6 +141,7 @@ fun SessionScreen(onBack: () -> Unit, onOpenResults: (Long) -> Unit, vm: Session
         state = SessionUiState(
             title = session?.title ?: "Session",
             ended = ended,
+            listenOnly = listenOnly,
             turns = turns.map { SessionTurn(it.id, runCatching { Speaker.valueOf(it.speaker) }.getOrDefault(Speaker.SYSTEM), it.text, timings[it.id]) },
             listen = listen, level = level, butler = butler, engines = engines, deviceWarning = warning,
             notesStatus = session?.notesStatus ?: "NONE",
@@ -155,6 +158,7 @@ fun SessionScreen(onBack: () -> Unit, onOpenResults: (Long) -> Unit, vm: Session
         onDelete = { confirmDelete = true },
         onOpenResults = { onOpenResults(vm.sessionId) },
         onRetry = vm::retryFiling,
+        onMode = vm::setListenOnly,
     )
 }
 
@@ -170,11 +174,16 @@ fun SessionContent(
     onDelete: () -> Unit,
     onOpenResults: () -> Unit,
     onRetry: () -> Unit,
+    onMode: (Boolean) -> Unit = {},
 ) {
     Column(Modifier.fillMaxSize().background(FocusColors.bg).imePadding()) {
         var menu by remember { mutableStateOf(false) }
         BackBar(onBack, tint = FocusColors.text) {
-            if (!state.ended) FocusPill("Wrap up", onWrapUp, Modifier.testTag("wrapUp"))
+            if (!state.ended) {
+                ModeSwitch(state.listenOnly, onMode)
+                Spacer(Modifier.width(8.dp))
+                FocusPill("Wrap up", onWrapUp, Modifier.testTag("wrapUp"))
+            }
             Box {
                 IconButton(onClick = { menu = true }) { Icon(Icons.Default.MoreVert, contentDescription = "More", tint = FocusColors.text) }
                 DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
@@ -183,7 +192,11 @@ fun SessionContent(
             }
         }
         Text(
-            if (state.ended) state.title else "$BUTLER_NAME asks one follow-up at a time.",
+            when {
+                state.ended -> state.title
+                state.listenOnly -> "$BUTLER_NAME stays quiet and just captures."
+                else -> "$BUTLER_NAME asks one sharp follow-up at a time."
+            },
             style = Mind.type.caption, color = FocusColors.muted,
             modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp), textAlign = androidx.compose.ui.text.style.TextAlign.Center,
         )
@@ -196,6 +209,26 @@ fun SessionContent(
             TypedInput(onSend)
         } else {
             FiledCard(state, onOpenResults, onRetry)
+        }
+    }
+}
+
+/** Listen / Interview segmented control (design-spec §4 Session). */
+@Composable
+private fun ModeSwitch(listenOnly: Boolean, onMode: (Boolean) -> Unit) {
+    Row(
+        Modifier.clip(RoundedCornerShape(22.dp)).background(FocusColors.controlBg).padding(4.dp).testTag("modeSwitch"),
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        listOf("Listen" to true, "Interview" to false).forEach { (label, listen) ->
+            val on = listen == listenOnly
+            Box(
+                Modifier.heightIn(min = 36.dp).clip(RoundedCornerShape(18.dp)).background(if (on) FocusColors.text else FocusColors.transparent)
+                    .clickable(role = Role.RadioButton) { onMode(listen) }.padding(horizontal = 14.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(label, style = if (on) Mind.type.button.copy(fontSize = Mind.type.label.fontSize) else Mind.type.label.copy(fontWeight = androidx.compose.ui.text.font.FontWeight.Normal), color = if (on) FocusColors.bg else FocusColors.offSegment)
+            }
         }
     }
 }

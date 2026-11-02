@@ -5,9 +5,9 @@
 | Phase | Scope | Status |
 |---|---|---|
 | 1 | Data model and filing: subjects, topics, entries, types, privacy, Inbox, delete and regenerate, no "General" | CI green; phone-tested |
-| 2 | Butler persona, onboarding, modes; in-app model downloader + Full/Sealed flavours | Not started |
-| 3 | Ask the library: embeddings, semantic search, cited answers | Not started |
-| 4 | Nudges | Not started |
+| 2 | Butler persona, onboarding, modes; in-app model downloader + Full/Sealed flavours | Partly done: persona profile, Butler screen, journal, Listen/Interview (pulled forward). Remaining: onboarding wizard, downloader, flavours |
+| 3 | Ask the library: embeddings, semantic search, cited answers | Partly done: Ask screen with cited answers over FTS5 keyword retrieval. Remaining: embedding model and semantic search |
+| 4 | Nudges | Partly done: Home nudge card (unfinished topic, spaced review, daily capture; Later = tomorrow). Remaining: notifications, WorkManager, settings |
 | 5 | Privacy: sensitivity guard, app lock, encryption, backup | Not started |
 | 6 | Design pass (pulled forward at the owner's request: existing screens now; Ask and Butler get built in this style when their phases land) | In review (CI) |
 | 7 | Sharing | Not started |
@@ -56,6 +56,18 @@ Built, following docs/design-spec.md, with the "Mind-map App Redesign" canvas as
 - No schema change. Version 0.3.0 (versionCode 3) installs over 0.2.0.
 
 Not built (no feature behind them yet): the Ask tab and screen (phase 3), the Butler screen (phase 2; the "M" avatar opens Settings until then), the nudge card (phase 4), Listen/Interview modes (phase 2), and "Ask about this" on topics (phase 3). "Continue topic" starts a session titled with the topic; it does not yet steer filing to that topic. Whisper has no live partial transcript, so Session shows "Listening…" rather than fake partial text.
+
+### Full canvas UI with functionality (2 Nov 2026, owner's request)
+Built:
+- **Repair: the "General" topic.** v1 named unclassifiable sessions "General", and the v2 migration kept that topic, filing it under a confidently guessed subject. `MIGRATION_3_4` is data-only: entries under a catch-all topic go back to the Inbox (subject kept as the suggestion), the kept v1 page becomes one Inbox entry so nothing is lost, and the topic is deleted. `LegacyPlanner` now never keeps a catch-all v1 topic. Covered by `MigrationTest` (3 → 4 with your case, and 2 → 4) and a core unit test. The search index rebuilds once.
+- **Butler** (`ButlerProfile`, `ButlerPrompt`, `ButlerRepository`, Butler screen): name, "calls you", four tone sliders, interview style (Sharp engineer by default; Curious fresher; Sceptical reviewer), optional character notes. The live interview prompt is built from the profile. The prompt is identical for every turn of a session, so the KV-cache prefix is reused. The name appears throughout the UI. The greeting uses "calls you".
+- **Journal:** when you change or discard the butler's filing suggestion in the Inbox, it notes how you file things. The latest notes are fed into the filing prompt and shown on the Butler screen (with Clear).
+- **Listen / Interview** switch in Session: Listen captures without asking questions.
+- **Ask** tab and screen: keyword retrieval (FTS5, any-word, bm25) over entries, then the LLM answers only from the numbered entries, with numbered citation chips that open the entry. When nothing is found: "Nothing yet, I'm afraid. Shall I interview you on it now?" with Start an interview. Questions can be typed or spoken (whisper push-to-talk). Topic pages have "Ask about this".
+- **Nudge card** on Home (`NudgeEngine`, deterministic). Order: a topic with open questions, then something said 30+ days ago ("Three months ago you said …"), then "Anything worth keeping from today?" when there has been no session today. Talk now starts a session on it; Later hides it until tomorrow.
+- Bottom bar: Home · Library · [Talk] · Ask · Inbox.
+
+Limits: Ask matches words, not meaning, until the embedding model (phase 3). Nudges show only in the app; there are no notifications yet. The journal learns from your Inbox corrections only; the butler does not yet track "promises".
 
 # v1
 

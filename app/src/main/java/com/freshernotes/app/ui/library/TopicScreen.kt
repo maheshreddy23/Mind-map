@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -77,7 +78,7 @@ data class TopicUiState(
 )
 
 @Composable
-fun TopicScreen(onBack: () -> Unit, onOpenEntry: (Long) -> Unit, onContinue: (String) -> Unit, vm: TopicViewModel = hiltViewModel()) {
+fun TopicScreen(onBack: () -> Unit, onOpenEntry: (Long) -> Unit, onContinue: (String) -> Unit, onAsk: (String) -> Unit = {}, vm: TopicViewModel = hiltViewModel()) {
     val topic by vm.topic.collectAsStateWithLifecycle()
     val subject by vm.subject.collectAsStateWithLifecycle()
     val entries by vm.entries.collectAsStateWithLifecycle()
@@ -130,10 +131,11 @@ fun TopicScreen(onBack: () -> Unit, onOpenEntry: (Long) -> Unit, onContinue: (St
             }
         },
         onContinue = { topic?.title?.let(onContinue) },
+        onAsk = { topic?.title?.let(onAsk) },
     )
 }
 
-/** design-spec §4 Topic page. "Ask about this" joins when Ask lands (phase 3). */
+/** design-spec §4 Topic page. */
 @Composable
 fun TopicContent(
     state: TopicUiState,
@@ -143,6 +145,7 @@ fun TopicContent(
     onMenu: (String) -> Unit,
     onContinue: () -> Unit,
     initialTab: Int = 0,
+    onAsk: () -> Unit = {},
 ) {
     val c = Mind.colors
     var tab by rememberSaveable { mutableStateOf(initialTab) }
@@ -176,7 +179,9 @@ fun TopicContent(
                     drawLine(c.line, Offset(0f, 0f), Offset(size.width, 0f), 1.dp.toPx())
                 }.navigationBarsPadding().padding(horizontal = MindDimens.screenPadding, vertical = 12.dp),
             ) {
-                Pill("Continue topic", onContinue, Modifier.fillMaxWidth().testTag("continueTopic"), height = 48.dp, leading = Icons.Default.Mic)
+                Pill("Ask about this", onAsk, Modifier.weight(1f).testTag("askAboutTopic"), style = PillStyle.OUTLINE, height = 48.dp)
+                androidx.compose.foundation.layout.Spacer(Modifier.width(10.dp))
+                Pill("Continue topic", onContinue, Modifier.weight(1.3f).testTag("continueTopic"), height = 48.dp, leading = Icons.Default.Mic)
             }
         },
     ) { padding ->

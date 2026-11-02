@@ -6,6 +6,7 @@ import com.freshernotes.app.data.LibraryRepository
 import com.freshernotes.app.data.SessionRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
@@ -18,7 +19,10 @@ import javax.inject.Inject
 class TalkViewModel @Inject constructor(
     private val sessions: SessionRepository,
     library: LibraryRepository,
+    butler: com.freshernotes.app.data.ButlerRepository,
 ) : ViewModel() {
+    val butlerName = butler.profile.map { it.displayName }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, com.freshernotes.core.llm.ButlerProfile.DEFAULT_NAME)
     val inboxCount = library.observeInboxCount().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), 0)
 
     /** Starts a session; [topic] titles it "Topic: …" when continuing a topic. */

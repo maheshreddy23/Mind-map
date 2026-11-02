@@ -28,6 +28,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.outlined.Home
 import androidx.compose.material.icons.outlined.Inbox
 import androidx.compose.material.icons.outlined.LibraryBooks
+import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -59,9 +60,9 @@ import com.freshernotes.core.library.Privacy
 
 // ---- Bottom bar (§3) ----
 
-enum class Tab { HOME, LIBRARY, INBOX }
+enum class Tab { HOME, LIBRARY, ASK, INBOX }
 
-/** Home · Library · [Talk] · Inbox. Ask joins when its feature lands (phase 3). */
+/** Home · Library · [Talk] · Ask · Inbox (design-spec §3). */
 @Composable
 fun MindBottomBar(selected: Tab?, inboxCount: Int, onTab: (Tab) -> Unit, onTalk: () -> Unit) {
     val c = Mind.colors
@@ -72,10 +73,13 @@ fun MindBottomBar(selected: Tab?, inboxCount: Int, onTab: (Tab) -> Unit, onTalk:
             }.navigationBarsPadding().padding(top = 8.dp, bottom = 10.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            // Four equal slots: Home, Library, (Talk), Inbox. Ask takes a slot when it lands.
+            // Five equal slots: Home, Library, (Talk), Ask, Inbox.
             Box(Modifier.weight(1f), contentAlignment = Alignment.Center) { NavItem("Home", Icons.Outlined.Home, selected == Tab.HOME) { onTab(Tab.HOME) } }
             Box(Modifier.weight(1f), contentAlignment = Alignment.Center) { NavItem("Library", Icons.Outlined.LibraryBooks, selected == Tab.LIBRARY) { onTab(Tab.LIBRARY) } }
             Spacer(Modifier.weight(1f))
+            Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
+                NavItem("Ask", Icons.Outlined.Search, selected == Tab.ASK, modifier = Modifier.testTag("nav-ask")) { onTab(Tab.ASK) }
+            }
             Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
                 NavItem(
                     "Inbox", Icons.Outlined.Inbox, selected == Tab.INBOX,
@@ -83,11 +87,11 @@ fun MindBottomBar(selected: Tab?, inboxCount: Int, onTab: (Tab) -> Unit, onTalk:
                 ) { onTab(Tab.INBOX) }
             }
         }
-        // The Talk button sits over the third of four slots, raised 28 dp above the bar.
+        // The Talk button sits over the middle of five slots, raised 28 dp above the bar.
         Row(Modifier.fillMaxWidth().offset(y = (-28).dp + 8.dp)) {
             Spacer(Modifier.weight(2f))
             Box(Modifier.weight(1f), contentAlignment = Alignment.Center) { TalkButton(onTalk) }
-            Spacer(Modifier.weight(1f))
+            Spacer(Modifier.weight(2f))
         }
     }
 }
@@ -113,7 +117,7 @@ private fun NavItem(label: String, icon: ImageVector, selected: Boolean, badge: 
     val c = Mind.colors
     val tint = if (selected) c.accent else c.muted
     Column(
-        modifier.widthIn(min = 64.dp).heightIn(min = MindDimens.touch).clip(RoundedCornerShape(12.dp))
+        modifier.widthIn(min = 56.dp).heightIn(min = MindDimens.touch).clip(RoundedCornerShape(12.dp))
             .clickable(role = Role.Tab, onClick = onClick).padding(horizontal = 8.dp, vertical = 2.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(3.dp),
@@ -286,19 +290,22 @@ fun BookSpine(title: String, caption: String, color: Color, onClick: () -> Unit,
     }
 }
 
-/** The butler's round avatar (opens Settings until the Butler screen lands in phase 2). */
+/** The butler's round avatar; opens the Butler screen. */
 @Composable
 fun Avatar(letter: String, onClick: (() -> Unit)?, modifier: Modifier = Modifier, size: Dp = 44.dp) {
     val c = Mind.colors
     Box(
         modifier.size(size).clip(CircleShape).background(c.accent)
-            .then(if (onClick != null) Modifier.clickable(role = Role.Button, onClick = onClick).semantics { contentDescription = "Open butler settings" } else Modifier),
+            .then(if (onClick != null) Modifier.clickable(role = Role.Button, onClick = onClick).semantics { contentDescription = "Open your butler" } else Modifier),
         contentAlignment = Alignment.Center,
     ) { Text(letter, style = Mind.type.cardTitle, color = c.onAccent) }
 }
 
-/** The butler's display name until the persona profile (phase 2) makes it editable. */
-const val BUTLER_NAME = "M"
+/** The butler's current name (from the persona profile), provided at the root of the UI. */
+val LocalButlerName = androidx.compose.runtime.staticCompositionLocalOf { com.freshernotes.core.llm.ButlerProfile.DEFAULT_NAME }
+
+val BUTLER_NAME: String
+    @Composable @androidx.compose.runtime.ReadOnlyComposable get() = LocalButlerName.current
 
 @Composable
 fun Divider(modifier: Modifier = Modifier) = Box(modifier.fillMaxWidth().height(1.dp).background(Mind.colors.line))

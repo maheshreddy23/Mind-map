@@ -47,6 +47,7 @@ class ConversationController @Inject constructor(
     private val voices: SynthesizerProvider,
     private val device: DeviceMonitor,
     private val perf: PerfStats,
+    private val butler: com.freshernotes.app.data.ButlerRepository,
 ) {
     private val _state = MutableStateFlow<FresherState>(FresherState.Idle)
     val state: StateFlow<FresherState> = _state.asStateFlow()
@@ -94,14 +95,16 @@ class ConversationController @Inject constructor(
         try {
             val health = device.state.value
             if (PerformancePolicy.shouldPauseLlm(health.thermalStatus)) {
-                _state.value = FresherState.Error("Phone is too hot; the fresher will ask again once it cools. Keep talking: everything is saved.")
+                _state.value = FresherState.Error("Phone is too hot; questions resume once it cools. Keep talking: everything is saved.")
                 return
             }
             val engine = engines.llm()
             engine.setThreads(health.budget.llmThreads)
             val model = LlamaLanguageModel(engine)
             val context = ContextManager(model)
-            val system = Persona.systemPrompt(maxWords)
+            // The butler's persona (name, tone, interview style). Constant within a session: a cached prompt prefix.
+            val profile = butler.profile.first()
+            val system = com.freshernotes.core.llm.ButlerPrompt.system(profile, maxWords)
             val session = requireNotNull(sessions.getSession(sessionId))
             var memory = ConversationMemory(session.runningSummary, session.summarizedTurnCount, sessions.turns(sessionId))
             if (context.needsCompaction(memory, system)) {
@@ -111,9 +114,11 @@ class ConversationController @Inject constructor(
             }
             // Attempt 1: normal sampling with a gentle reminder. Attempt 2: near-greedy with a strict reminder.
             // If the model still will not ask (small models sometimes summarize), use a generic follow-up.
-            var question = generate(model, context.messages(memory, system, Persona.nudge(maxWords)), maxWords, 0.7f, record = true)
+            val nudge = com.freshernotes.core.llm.ButlerPrompt.nudge(profile, maxWords)
+            val strict = com.freshernotes.core.llm.ButlerPrompt.nudge(profile, maxWords, strict = true)
+            var question = generate(model, context.messages(memory, system, nudge), maxWords, 0.7f, record = true, name = profile.displayName)
             if (!Persona.isQuestion(question)) {
-                question = generate(model, context.messages(memory, system, Persona.nudge(maxWords, strict = true)), maxWords, 0.2f, record = false)
+                question = generate(model, context.messages(memory, system, strict), maxWords, 0.2f, record = false, name = profile.displayName)
             }
             if (!Persona.isQuestion(question)) question = Persona.fallbackQuestion(memory.allTurns.size)
             sessions.addTurn(sessionId, Speaker.FRESHER, question)
@@ -133,7 +138,7 @@ class ConversationController @Inject constructor(
         } catch (e: MissingModelException) {
             _state.value = FresherState.Error("${e.kind.label} is not installed. Add it in Settings.")
         } catch (e: Exception) {
-            val msg = e.message ?: "The fresher could not respond"
+            val msg = e.message ?: "No reply this time"
             _state.value = FresherState.Error(OfficialChecksums.loadFailureHint(msg)?.let { "$msg\n$it" } ?: msg)
         }
     }
@@ -144,6 +149,7 @@ class ConversationController @Inject constructor(
         maxWords: Int,
         temperature: Float,
         record: Boolean,
+        name: String,
     ): String {
         _state.value = FresherState.Thinking("")
         val raw = StringBuilder()
@@ -158,7 +164,7 @@ class ConversationController @Inject constructor(
             _state.value = FresherState.Thinking(raw.toString())
         }
         if (record && firstTokenMs >= 0) perf.recordLlm(firstTokenMs, chunks, (System.nanoTime() - t0) / 1_000_000)
-        return Persona.cleanReply(raw.toString(), maxWords)
+        return Persona.cleanReply(raw.toString(), maxWords, name)
     }
 
     fun clearError() {

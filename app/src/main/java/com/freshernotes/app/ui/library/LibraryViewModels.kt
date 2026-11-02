@@ -56,6 +56,7 @@ class InboxViewModel @Inject constructor(
     savedState: SavedStateHandle,
     library: LibraryRepository,
     sessions: com.freshernotes.app.data.SessionRepository,
+    private val butler: com.freshernotes.app.data.ButlerRepository,
 ) : LibraryBaseViewModel(library) {
     /** Set when opened from wrap-up: the screen shows that session's results first. */
     val sessionId: Long? = savedState.get<Long>("sessionId")?.takeIf { it > 0 }
@@ -110,8 +111,30 @@ class InboxViewModel @Inject constructor(
         act { confirm(e, library.accept(e.id, s, t)) }
     }
 
-    fun file(e: EntryEntity, c: FilingChoice) = act { confirm(e, library.accept(e.id, c.subject, c.topic, c.type, c.privacy)) }
-    fun reject(e: EntryEntity) = act("Discarded") { library.deleteEntry(e.id) }
+    fun file(e: EntryEntity, c: FilingChoice) = act {
+        val topicId = library.accept(e.id, c.subject, c.topic, c.type, c.privacy)
+        confirm(e, topicId)
+        learn(e, topicId, c)
+    }
+
+    /** The butler's journal (§4.3): remember how the user corrected a suggestion, so filing improves. */
+    private suspend fun learn(e: EntryEntity, topicId: Long, c: FilingChoice) {
+        val topic = library.topic(topicId) ?: return
+        val subject = topic.subjectId?.let { library.subject(it) }?.title
+        val where = listOfNotNull(subject, topic.title).joinToString(" › ")
+        val suggested = listOfNotNull(e.proposedSubject, e.proposedTopic).joinToString(" › ")
+        when {
+            suggested.isNotBlank() && !suggested.equals(where, ignoreCase = true) ->
+                butler.remember("\"${e.title}\" belongs under $where, not $suggested.")
+            suggested.isBlank() -> butler.remember("\"${e.title}\" belongs under $where.")
+        }
+        if (c.type != e.entryType()) butler.remember("\"${e.title}\" is a ${c.type.label}, not a ${e.entryType().label}.")
+    }
+
+    fun reject(e: EntryEntity) = act("Discarded") {
+        library.deleteEntry(e.id)
+        butler.remember("Discarded \"${e.title}\": not worth keeping.")
+    }
     fun undo(e: EntryEntity) = act("Moved back to the Inbox") { library.undoFiling(e.id) }
 }
 

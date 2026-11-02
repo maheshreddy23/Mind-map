@@ -44,6 +44,7 @@ class SessionFiler @Inject constructor(
     private val settings: SettingsRepository,
     private val engines: Engines,
     private val index: SearchIndex,
+    private val butler: com.freshernotes.app.data.ButlerRepository,
 ) {
     private val mutex = Mutex()
 
@@ -66,7 +67,8 @@ class SessionFiler @Inject constructor(
             }
             val llm = model ?: LlamaLanguageModel(engines.llm())
             val snapshot = library.snapshot()
-            val raw = llm.complete(promptFor(llm, snapshot, session.runningSummary, session.summarizedTurnCount, turns), maxTokens = MAX_TOKENS, temperature = 0.2f)
+            val prefs = butler.journal.first()
+            val raw = llm.complete(promptFor(llm, snapshot, prefs, session.runningSummary, session.summarizedTurnCount, turns), maxTokens = MAX_TOKENS, temperature = 0.2f)
             val privacy = settings.settings.first().defaultPrivacy
             val decisions = FilingParser.parse(raw).map { FilingPolicy.decide(it, snapshot, privacy) }
                 .ifEmpty { listOf(fallback(session.title, raw, turns, privacy)) }
@@ -95,10 +97,10 @@ class SessionFiler @Inject constructor(
     }
 
     /** Uses the full transcript when it fits; otherwise the running summary plus the turns after it. */
-    private fun promptFor(llm: LanguageModel, lib: List<SubjectRef>, summary: String, summarizedCount: Int, turns: List<ChatTurn>) =
-        FilingPrompts.forSession(lib, "", turns).takeIf { fits(llm, it) }
-            ?: FilingPrompts.forSession(lib, summary, turns.drop(summarizedCount)).takeIf { fits(llm, it) }
-            ?: FilingPrompts.forSession(lib, summary, turns.drop(summarizedCount).takeLast(12))
+    private fun promptFor(llm: LanguageModel, lib: List<SubjectRef>, prefs: List<String>, summary: String, summarizedCount: Int, turns: List<ChatTurn>) =
+        FilingPrompts.forSession(lib, "", turns, prefs).takeIf { fits(llm, it) }
+            ?: FilingPrompts.forSession(lib, summary, turns.drop(summarizedCount), prefs).takeIf { fits(llm, it) }
+            ?: FilingPrompts.forSession(lib, summary, turns.drop(summarizedCount).takeLast(12), prefs)
 
     private fun fits(llm: LanguageModel, messages: List<ChatMessage>) =
         llm.count(llm.format.render(messages, true)) + MAX_TOKENS <= llm.contextSize

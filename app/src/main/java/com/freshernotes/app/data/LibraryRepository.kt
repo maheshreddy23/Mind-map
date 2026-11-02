@@ -55,6 +55,7 @@ class LibraryRepository @Inject constructor(
     fun observeTopicEntries(topicId: Long): Flow<List<EntryEntity>> = entries.observeForTopic(topicId)
     fun observeEntry(id: Long): Flow<EntryEntity?> = entries.observe(id)
     fun observeInbox(): Flow<List<EntryEntity>> = entries.observeInbox()
+    fun observeOldestFiled(): Flow<EntryEntity?> = entries.observeOldestFiled()
     fun observeTopicCounts(): Flow<List<com.freshernotes.app.data.db.TopicEntryCount>> = entries.observeTopicCounts()
     fun observeInboxCount(): Flow<Int> = entries.observeInboxCount()
     fun observeSessionEntries(sessionId: Long): Flow<List<EntryEntity>> = entries.observeForSession(sessionId)
