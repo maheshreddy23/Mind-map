@@ -55,9 +55,18 @@ abstract class LibraryBaseViewModel(protected val library: LibraryRepository) : 
 class InboxViewModel @Inject constructor(
     savedState: SavedStateHandle,
     library: LibraryRepository,
-    sessions: com.maheshreddy.mym.data.SessionRepository,
+    private val sessions: com.maheshreddy.mym.data.SessionRepository,
     private val butler: com.maheshreddy.mym.data.ButlerRepository,
+    private val filer: com.maheshreddy.mym.library.SessionFiler,
+    @com.maheshreddy.mym.di.ApplicationScope private val appScope: kotlinx.coroutines.CoroutineScope,
 ) : LibraryBaseViewModel(library) {
+    /** Sessions left open with turns for over 12 h: offered here to wrap up (bug: "In progress" forever). */
+    val staleSessions = sessions.staleOpenSessions().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    fun wrapUpSession(id: Long) = act("Wrapping up; filing runs in the background") {
+        sessions.endSession(id)
+        appScope.launch { filer.file(id) }
+    }
     /** Set when opened from wrap-up: the screen shows that session's results first. */
     val sessionId: Long? = savedState.get<Long>("sessionId")?.takeIf { it > 0 }
 
@@ -151,9 +160,13 @@ class LibraryViewModel @Inject constructor(
         if (q.isBlank()) emptyList() else runCatching { index.search(q) }.getOrDefault(emptyList())
     }
 
-    private val data = combine(library.observeSubjects(), library.observeAllTopics(), library.observeTopicCounts(), filter) { subjects, topics, counts, f ->
-        val all = LibraryUi.tiles(topics, subjects, counts)
-        val tiles = LibraryUi.tiles(topics, subjects, counts, f)
+    private val base = combine(library.observeSubjects(), library.observeAllTopics(), library.observeTopicCounts(), library.observeWaitingCounts()) { a, b, c, d ->
+        LibraryBase(a, b, c, d)
+    }
+
+    private val data = combine(base, filter, library.observeEmptyTopics()) { (subjects, topics, counts, waiting), f, empty ->
+        val all = LibraryUi.tiles(topics, subjects, counts, waiting = waiting)
+        val tiles = LibraryUi.tiles(topics, subjects, counts, f, waiting)
         val tileIds = tiles.associateBy { it.id }
         LibraryUiState(
             topicCount = topics.size,
@@ -161,6 +174,7 @@ class LibraryViewModel @Inject constructor(
             filter = f,
             shelves = LibraryUi.shelves(subjects, topics, tiles, f),
             unassigned = topics.filter { it.subjectId == null }.mapNotNull { tileIds[it.id] },
+            emptyTopics = empty.map { it.id to it.title },
         )
     }
 
@@ -170,14 +184,22 @@ class LibraryViewModel @Inject constructor(
     fun setQuery(q: String) { query.value = q }
     fun setFilter(p: Privacy?) { filter.value = p }
     fun createSubject(name: String) = act("Subject created") { library.createSubject(name) }
+    fun deleteEmptyTopics(ids: List<Long>) = act(if (ids.size == 1) "Empty topic deleted" else "${ids.size} empty topics deleted") { library.deleteEmptyTopics(ids) }
 }
+
+private data class LibraryBase(
+    val subjects: List<com.maheshreddy.mym.data.db.SubjectEntity>,
+    val topics: List<com.maheshreddy.mym.data.db.TopicEntity>,
+    val counts: List<com.maheshreddy.mym.data.db.TopicEntryCount>,
+    val waiting: List<com.maheshreddy.mym.data.db.TopicWaiting>,
+)
 
 @HiltViewModel
 class SubjectViewModel @Inject constructor(savedState: SavedStateHandle, library: LibraryRepository) : LibraryBaseViewModel(library) {
     val subjectId: Long = checkNotNull(savedState["subjectId"])
     val subject = library.observeSubject(subjectId).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
     val topics = library.observeTopics(subjectId).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
-    val tiles = combine(library.observeAllTopics(), library.observeSubjects(), library.observeTopicCounts()) { t, s, c -> LibraryUi.tiles(t, s, c) }
+    val tiles = combine(library.observeAllTopics(), library.observeSubjects(), library.observeTopicCounts(), library.observeWaitingCounts()) { t, s, c, w -> LibraryUi.tiles(t, s, c, waiting = w) }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     fun rename(name: String) = act("Renamed") { library.renameSubject(subjectId, name) }

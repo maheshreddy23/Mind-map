@@ -26,10 +26,23 @@ class TalkViewModel @Inject constructor(
     val inboxCount = library.observeInboxCount().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), 0)
 
     /** Starts a session; [topic] titles it "Topic: …" when continuing a topic. */
+    private val starting = java.util.concurrent.atomic.AtomicBoolean(false)
+
+    /**
+     * Starts (or reuses a still-empty) session and opens it. Guarded so a double tap opens one session, not two:
+     * the cause of two sessions created in the same minute.
+     */
     fun start(onStarted: (Long) -> Unit, topic: String? = null) {
+        if (!starting.compareAndSet(false, true)) return
         viewModelScope.launch {
-            val time = SimpleDateFormat("d MMM, HH:mm", Locale.getDefault()).format(Date())
-            onStarted(sessions.startSession(if (topic != null) "$topic · $time" else "Session $time"))
+            try {
+                val time = SimpleDateFormat("d MMM, HH:mm", Locale.getDefault()).format(Date())
+                onStarted(sessions.startOrReuse(if (topic != null) "$topic · $time" else "Session $time", topic))
+            } finally {
+                // Keep the guard briefly so a second tap queued behind navigation is ignored too.
+                kotlinx.coroutines.delay(600)
+                starting.set(false)
+            }
         }
     }
 }

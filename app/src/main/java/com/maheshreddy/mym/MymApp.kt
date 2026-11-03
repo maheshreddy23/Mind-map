@@ -41,6 +41,8 @@ class MymApp : Application() {
                     prefs.edit().putInt("version", SEARCH_INDEX_VERSION).apply()
                 }
             }
+            // Sessions opened but never used (no turns) are removed; they used to linger as "In progress".
+            runCatching { sessions.deleteEmptySessions(System.currentTimeMillis() - 10 * 60 * 1000L) }
             // Finish filing that was interrupted (app killed after "wrap up").
             runCatching { filer.filePending() }
         }

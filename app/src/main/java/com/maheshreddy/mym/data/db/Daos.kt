@@ -49,6 +49,10 @@ interface TopicDao {
     @Delete
     suspend fun delete(topic: TopicEntity)
 
+    /** Topics with no entries at all: none filed and none proposed in the Inbox. */
+    @Query("SELECT * FROM topics WHERE NOT EXISTS (SELECT 1 FROM entries e WHERE e.topicId = topics.id OR e.proposedTopicId = topics.id) ORDER BY title COLLATE NOCASE")
+    fun observeEmpty(): Flow<List<TopicEntity>>
+
     @Query("SELECT * FROM topics ORDER BY updatedAt DESC")
     fun observeAll(): Flow<List<TopicEntity>>
 
@@ -85,6 +89,24 @@ interface SessionDao {
     @Insert
     suspend fun insert(session: SessionEntity): Long
 
+    /** Open sessions with no turns (abandoned before anything was said), started before [before]. */
+    @Query("DELETE FROM sessions WHERE endedAt IS NULL AND startedAt < :before AND NOT EXISTS (SELECT 1 FROM turns t WHERE t.sessionId = sessions.id)")
+    suspend fun deleteEmptyOpen(before: Long): Int
+
+    /** An open, still-empty session started after [after]: reused instead of creating a duplicate. */
+    @Query("SELECT * FROM sessions WHERE endedAt IS NULL AND startedAt >= :after AND NOT EXISTS (SELECT 1 FROM turns t WHERE t.sessionId = sessions.id) ORDER BY startedAt DESC LIMIT 1")
+    suspend fun reusableEmpty(after: Long): SessionEntity?
+
+    /** Open sessions that have turns but no activity since [before] (shown in the Inbox to wrap up). */
+    @Query("SELECT * FROM sessions WHERE endedAt IS NULL AND lastActivityAt < :before AND EXISTS (SELECT 1 FROM turns t WHERE t.sessionId = sessions.id) ORDER BY lastActivityAt DESC")
+    fun observeStaleOpen(before: Long): Flow<List<SessionEntity>>
+
+    @Query("SELECT COUNT(*) FROM turns WHERE sessionId = :id")
+    suspend fun turnCount(id: Long): Int
+
+    @Query("UPDATE sessions SET lastActivityAt = :at WHERE id = :id")
+    suspend fun touch(id: Long, at: Long)
+
     @Query("SELECT * FROM sessions WHERE notesStatus IN ('PENDING', 'FAILED')")
     suspend fun pendingNotes(): List<SessionEntity>
 
@@ -115,6 +137,10 @@ interface EntryDao {
     /** Filed-entry counts per topic, type and privacy (Library spines, Home cards, privacy filter). */
     @Query("SELECT topicId, type, privacy, COUNT(*) AS n FROM entries WHERE status = 'FILED' AND topicId IS NOT NULL GROUP BY topicId, type, privacy")
     fun observeTopicCounts(): Flow<List<TopicEntryCount>>
+
+    /** Inbox entries proposed for each topic (so a topic whose entries wait in the Inbox does not read as empty). */
+    @Query("SELECT proposedTopicId AS topicId, COUNT(*) AS n FROM entries WHERE status = 'INBOX' AND proposedTopicId IS NOT NULL GROUP BY proposedTopicId")
+    fun observeWaitingCounts(): Flow<List<TopicWaiting>>
 
     /** The oldest filed entry (spaced-review nudge). */
     @Query("SELECT * FROM entries WHERE status = 'FILED' ORDER BY createdAt, id LIMIT 1")

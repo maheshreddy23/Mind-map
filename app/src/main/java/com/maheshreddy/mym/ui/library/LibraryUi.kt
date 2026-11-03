@@ -15,14 +15,23 @@ data class TopicTile(
     val openQuestions: Int,
     /** Privacy levels present among its entries. */
     val privacies: Set<Privacy>,
+    /** Entries proposed for this topic that still wait in the Inbox (not yet counted in [entries]). */
+    val waiting: Int = 0,
 )
 
 data class Shelf(val subjectId: Long, val title: String, val topics: List<TopicTile>)
 
 /** Pure builders shared by Home and Library (kept free of Android types for tests). */
 object LibraryUi {
-    fun tiles(topics: List<TopicEntity>, subjects: List<SubjectEntity>, counts: List<TopicEntryCount>, filter: Privacy? = null): List<TopicTile> {
+    fun tiles(
+        topics: List<TopicEntity>,
+        subjects: List<SubjectEntity>,
+        counts: List<TopicEntryCount>,
+        filter: Privacy? = null,
+        waiting: List<com.maheshreddy.mym.data.db.TopicWaiting> = emptyList(),
+    ): List<TopicTile> {
         val names = subjects.associate { it.id to it.title }
+        val waitingBy = waiting.associate { it.topicId to it.n }
         val byTopic = counts.groupBy { it.topicId }
         return topics.mapNotNull { t ->
             val rows = byTopic[t.id].orEmpty()
@@ -33,6 +42,7 @@ object LibraryUi {
                 entries = visible.sumOf { it.n },
                 openQuestions = visible.filter { it.type == EntryType.OPEN_QUESTION.name }.sumOf { it.n },
                 privacies = rows.mapNotNull { r -> runCatching { Privacy.valueOf(r.privacy) }.getOrNull() }.toSet(),
+                waiting = waitingBy[t.id] ?: 0,
             )
         }
     }
@@ -47,6 +57,7 @@ object LibraryUi {
     fun caption(t: TopicTile): String = buildString {
         append(plural(t.entries, "entry", "entries"))
         if (t.openQuestions > 0) append(" · ").append(t.openQuestions).append(" open")
+        if (t.waiting > 0) append(" · ").append(t.waiting).append(" in Inbox")
     }
 
     fun plural(n: Int, one: String, many: String) = "$n ${if (n == 1) one else many}"

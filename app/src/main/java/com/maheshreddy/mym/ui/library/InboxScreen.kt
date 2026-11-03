@@ -78,11 +78,23 @@ data class InboxUiState(
     /** Entries accepted on this screen, shown as one confirmation line each. */
     val confirmations: List<Pair<Long, String>> = emptyList(),
     val filed: List<FiledItem> = emptyList(),
+    /** Sessions still open after 12 h idle. */
+    val stale: List<StaleSession> = emptyList(),
 )
 
+data class StaleSession(val id: Long, val title: String)
+
 @Composable
-fun InboxScreen(onBack: (() -> Unit)?, onOpenEntry: (Long) -> Unit, onOpenTopic: (Long) -> Unit, vm: InboxViewModel = hiltViewModel()) {
-    val state by vm.state.collectAsStateWithLifecycle()
+fun InboxScreen(
+    onBack: (() -> Unit)?,
+    onOpenEntry: (Long) -> Unit,
+    onOpenTopic: (Long) -> Unit,
+    onOpenSession: (Long) -> Unit = {},
+    vm: InboxViewModel = hiltViewModel(),
+) {
+    val state0 by vm.state.collectAsStateWithLifecycle()
+    val stale by vm.staleSessions.collectAsStateWithLifecycle()
+    val state = state0.copy(stale = stale.map { StaleSession(it.id, it.title) })
     val subjects by vm.subjects.collectAsStateWithLifecycle()
     val topics by vm.allTopics.collectAsStateWithLifecycle()
     var filing by remember { mutableStateOf<EntryEntity?>(null) }
@@ -101,6 +113,7 @@ fun InboxScreen(onBack: (() -> Unit)?, onOpenEntry: (Long) -> Unit, onOpenTopic:
         state, snackbar, onBack, onOpenEntry,
         onOpenTopic = { e -> e.topicId?.let(onOpenTopic) },
         onAccept = vm::accept, onChange = { filing = it }, onDiscard = vm::reject, onUndo = vm::undo,
+        onWrapUpSession = vm::wrapUpSession, onOpenSession = onOpenSession,
     )
 }
 
@@ -117,6 +130,8 @@ fun InboxContent(
     onChange: (EntryEntity) -> Unit,
     onDiscard: (EntryEntity) -> Unit,
     onUndo: (EntryEntity) -> Unit,
+    onWrapUpSession: (Long) -> Unit = {},
+    onOpenSession: (Long) -> Unit = {},
 ) {
     val c = Mind.colors
     Scaffold(
@@ -144,6 +159,17 @@ fun InboxContent(
                         style = Mind.type.screenTitle.copy(fontSize = Mind.type.screenTitle.fontSize.times(28f / 30f)), color = c.ink,
                     )
                     if (state.sessionMode && state.filing) LinearProgressIndicator(Modifier.fillMaxWidth().padding(top = 6.dp), color = c.accent, trackColor = c.line)
+                }
+            }
+            state.stale.forEach { s ->
+                item(key = "stale${s.id}") {
+                    MindCard(border = BorderStroke(1.5.dp, c.amberBorder), modifier = Modifier.testTag("staleSession")) {
+                        Text("\"${s.title}\" is still open. Wrap it up so what you said gets filed?", style = Mind.type.body, color = c.ink)
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Pill("Wrap up", { onWrapUpSession(s.id) })
+                            Pill("Open it", { onOpenSession(s.id) }, style = PillStyle.OUTLINE)
+                        }
+                    }
                 }
             }
             state.confirmations.forEach { (id, text) ->

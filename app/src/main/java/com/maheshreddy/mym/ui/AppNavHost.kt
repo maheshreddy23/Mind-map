@@ -126,7 +126,7 @@ fun AppNavHost(talk: TalkViewModel = hiltViewModel()) {
                 composable(Routes.LIBRARY) {
                     LibraryScreen(onOpenSubject = openSubject, onOpenTopic = openTopic, onOpenEntry = openEntry, onOpenSession = openSession, onTalk = onTalk)
                 }
-                composable(Routes.INBOX) { InboxScreen(onBack = null, onOpenEntry = openEntry, onOpenTopic = openTopic) }
+                composable(Routes.INBOX) { InboxScreen(onBack = null, onOpenEntry = openEntry, onOpenTopic = openTopic, onOpenSession = openSession) }
                 composable(Routes.RESULTS, arguments = listOf(navArgument("sessionId") { type = NavType.LongType })) {
                     InboxScreen(onBack = back, onOpenEntry = openEntry, onOpenTopic = openTopic)
                 }

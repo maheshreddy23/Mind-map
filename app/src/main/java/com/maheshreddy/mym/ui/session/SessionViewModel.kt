@@ -70,6 +70,15 @@ class SessionViewModel @Inject constructor(
 
     fun setListenOnly(on: Boolean) { _listenOnly.value = on }
 
+    private val _resumePrompt = MutableStateFlow(false)
+    /** Reopening an unfinished session that has turns and has been idle: offer Resume or Wrap up. */
+    val resumePrompt: StateFlow<Boolean> = _resumePrompt.asStateFlow()
+    fun resume() { _resumePrompt.value = false }
+
+    private val _closed = MutableStateFlow(false)
+    /** True once an empty session was wrapped up and therefore deleted: the screen goes back. */
+    val closed: StateFlow<Boolean> = _closed.asStateFlow()
+
     /** "Please respond" signals; CONFLATED so a backlog collapses into one reply using the latest turns. */
     private val respondRequests = Channel<Unit>(Channel.CONFLATED)
 
@@ -88,7 +97,11 @@ class SessionViewModel @Inject constructor(
         }
         // Load whisper, then the LLM, in the background so the first turn does not wait for them.
         viewModelScope.launch {
-            if (sessions.getSession(sessionId)?.endedAt == null) engines.preload()
+            val s = sessions.getSession(sessionId)
+            if (s?.endedAt == null) engines.preload()
+            if (s != null && s.endedAt == null && sessions.turnCount(sessionId) > 0 &&
+                System.currentTimeMillis() - s.lastActivityAt > RESUME_PROMPT_AFTER_MS
+            ) _resumePrompt.value = true
         }
     }
 
@@ -125,6 +138,13 @@ class SessionViewModel @Inject constructor(
 
     private suspend fun finish() {
         speech.stop()
+        _resumePrompt.value = false
+        // Nothing was said: there is nothing to file, so remove the session instead of leaving an empty one.
+        if (sessions.turnCount(sessionId) == 0) {
+            sessions.deleteIfEmpty(sessionId)
+            _closed.value = true
+            return
+        }
         sessions.endSession(sessionId)
         // Runs in the application scope so it completes even if the user leaves the screen.
         appScope.launch { filer.file(sessionId) }
@@ -146,5 +166,11 @@ class SessionViewModel @Inject constructor(
 
     override fun onCleared() {
         speech.stop()
+        // Opened but never used: do not leave an empty "In progress" session behind.
+        appScope.launch { sessions.deleteIfEmpty(sessionId) }
+    }
+
+    companion object {
+        const val RESUME_PROMPT_AFTER_MS = 10 * 60 * 1000L
     }
 }

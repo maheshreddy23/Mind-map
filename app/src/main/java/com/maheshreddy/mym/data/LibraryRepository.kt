@@ -55,6 +55,21 @@ class LibraryRepository @Inject constructor(
     fun observeTopicEntries(topicId: Long): Flow<List<EntryEntity>> = entries.observeForTopic(topicId)
     fun observeEntry(id: Long): Flow<EntryEntity?> = entries.observe(id)
     fun observeInbox(): Flow<List<EntryEntity>> = entries.observeInbox()
+    fun observeEmptyTopics(): Flow<List<TopicEntity>> = topics.observeEmpty()
+    fun observeWaitingCounts(): Flow<List<com.maheshreddy.mym.data.db.TopicWaiting>> = entries.observeWaitingCounts()
+
+    /** Deletes the given topics if they are still empty (no filed or proposed entries). */
+    suspend fun deleteEmptyTopics(ids: Collection<Long>) {
+        val removed = db.withTransaction {
+            ids.mapNotNull { id ->
+                val t = topics.get(id) ?: return@mapNotNull null
+                if (entries.allForTopic(id).isNotEmpty() || entries.getAll().any { it.proposedTopicId == id }) return@mapNotNull null
+                topics.delete(t); id
+            }
+        }
+        removed.forEach { index.remove(DocKind.TOPIC, it) }
+    }
+
     fun observeOldestFiled(): Flow<EntryEntity?> = entries.observeOldestFiled()
     fun observeTopicCounts(): Flow<List<com.maheshreddy.mym.data.db.TopicEntryCount>> = entries.observeTopicCounts()
     fun observeInboxCount(): Flow<Int> = entries.observeInboxCount()

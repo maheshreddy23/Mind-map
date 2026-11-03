@@ -147,3 +147,6 @@ data class EntryVectorEntity(
     val textHash: Int,
     val updatedAt: Long = System.currentTimeMillis(),
 )
+
+/** Query result: Inbox entries waiting per proposed topic. */
+data class TopicWaiting(val topicId: Long, val n: Int)

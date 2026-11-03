@@ -206,6 +206,12 @@ fun TopicContent(
                     Text("This topic has no subject yet. Tap to choose one.", style = Mind.type.body, color = c.ink)
                 }
             }
+            if (state.entries.isEmpty() && state.title.isNotEmpty()) item {
+                MindCard(background = c.amberSoft, border = null, modifier = Modifier.testTag("emptyTopic")) {
+                    Text("This topic has no entries. Continue it, or delete it if it was left behind.", style = Mind.type.body, color = c.ink)
+                    Pill("Delete topic", { onMenu("delete") }, style = PillStyle.INK, height = MindDimens.touch)
+                }
+            }
             item { Tabs(tab, state.entries.size) { tab = it } }
             if (state.summarizing) item {
                 Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {

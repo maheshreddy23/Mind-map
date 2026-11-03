@@ -66,6 +66,8 @@ data class LibraryUiState(
     val filter: Privacy? = null,
     val shelves: List<Shelf> = emptyList(),
     val unassigned: List<TopicTile> = emptyList(),
+    /** Topics with no filed or proposed entries (left behind after moves, undo or rejects). */
+    val emptyTopics: List<Pair<Long, String>> = emptyList(),
 )
 
 @Composable
@@ -93,6 +95,7 @@ fun LibraryScreen(
                     }
                 },
                 onTalk = onTalk, onNewSubject = { creating = true },
+                onDeleteEmpty = vm::deleteEmptyTopics,
             )
         }
     }
@@ -109,6 +112,7 @@ fun LibraryContent(
     onOpenHit: (SearchHit) -> Unit,
     onTalk: () -> Unit,
     onNewSubject: () -> Unit,
+    onDeleteEmpty: (List<Long>) -> Unit = {},
 ) {
     val c = Mind.colors
     LazyColumn(
@@ -141,6 +145,15 @@ fun LibraryContent(
             return@LazyColumn
         }
         item { PrivacyFilter(state.filter, onFilter) }
+        if (state.emptyTopics.isNotEmpty() && state.filter == null) item {
+            com.maheshreddy.mym.ui.components.MindCard(background = c.amberSoft, border = null, modifier = Modifier.testTag("emptyTopics")) {
+                Text(
+                    if (state.emptyTopics.size == 1) "\"${state.emptyTopics[0].second}\" has no entries." else "${state.emptyTopics.size} topics have no entries: " + state.emptyTopics.joinToString { it.second } + ".",
+                    style = Mind.type.body, color = c.ink,
+                )
+                Pill(if (state.emptyTopics.size == 1) "Delete it" else "Delete them", { onDeleteEmpty(state.emptyTopics.map { it.first }) }, style = PillStyle.INK, height = MindDimens.touch)
+            }
+        }
         if (state.shelves.isEmpty() && state.unassigned.isEmpty()) item {
             Caption(if (state.filter != null) "No topics have ${state.filter.label} entries." else "No subjects yet. They appear when you confirm where $BUTLER_NAME files things.")
         }
