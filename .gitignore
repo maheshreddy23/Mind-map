@@ -34,3 +34,7 @@ google-services.json
 # Android Profiling
 *.hprof
 test-models/
+
+# Roborazzi diff outputs (goldens are committed, diffs are not)
+*_actual.png
+*_compare.png

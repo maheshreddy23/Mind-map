@@ -8,7 +8,7 @@ plugins {
 val emulatorAbi = providers.gradleProperty("withX86_64").isPresent
 
 android {
-    namespace = "com.freshernotes.llama"
+    namespace = "com.maheshreddy.mym.llama"
     compileSdk = 35
     ndkVersion = rootProject.extra["ndkVersion"] as String
 

@@ -1,5 +1,99 @@
 # Progress
 
+## v2 (docs/requirements-v2.md)
+
+| Phase | Scope | Status |
+|---|---|---|
+| 1 | Data model and filing: subjects, topics, entries, types, privacy, Inbox, delete and regenerate, no "General" | CI green; phone-tested |
+| 2 | Butler persona, onboarding, modes; in-app model downloader + Full/Sealed flavours | Built (MYM change set, 3 Nov 2026); awaiting CI + phone test |
+| 3 | Ask the library: embeddings, semantic search, cited answers | Built (MYM change set); awaiting CI + phone test |
+| 4 | Nudges | Built: Home card + daily notification (WorkManager), per-type toggles, time, quiet hours |
+| 5 | Privacy: sensitivity guard, app lock, encryption, backup | Partly: app lock, default privacy, encrypted backup, privacy filters in Ask/Map. Not yet: sensitivity guard, at-rest DB encryption |
+| 6 | Design pass | Done; extended to the new screens |
+| 7 | Sharing | Not started |
+
+**v1 baseline on the OnePlus 13R (reported 1 Nov 2026):** whisper small.en at 0.48× real time; warm first LLM token 1848 ms at 12.4 tok/s; the transcript-latency fix confirmed working. First token is only ~150 ms under the 2 s target, so later phases must keep the persona/journal as a cached prompt prefix.
+
+### v2 phase 1: data model and filing
+Built:
+- Room v3 schema: new `subjects` and `entries` tables; `topics` gains `subjectId`, `summary`, `legacyMarkdown`. Schemas 2 and 3 are committed in `app/schemas` (2.json exported from the v1 build on main).
+- `MIGRATION_2_3`, non-destructive. v1 session notes are split into typed entries (Key concepts + Procedures + Reasons → Knowledge, Pitfalls → Lesson, Open questions → Open question). A v1 topic goes under a subject only if a strict keyword guess is confident **and** the subject is one named in the spec (Jigs and Fixtures, PLM, Project Management, Personal Finance, Life); those entries are filed and appear in "Filed today" with Undo. Everything else goes to the Inbox, pre-filled with the v1 topic and the best guess. Sessions, turns and the v1 notes column are untouched; each v1 topic page is kept verbatim in `legacyMarkdown` (hand edits included) and shown on the topic page until you discard it.
+- `:core` `library` package: `EntryType`, `Privacy` (default Private), `CatchAll` guard, `FilingPrompts`/`FilingParser`/`FilingPolicy`, `LegacyNotes`/`SubjectClassifier`/`LegacyPlanner`, `PageBuilder`.
+- Wrap-up filing (`SessionFiler`, replaces `NoteGenerator`): the LLM splits the session into entries with subject, topic, type, confidence and privacy. Auto-filed only if the model is confident and both subject and topic already exist; new subjects/topics always go to the Inbox; catch-all names are dropped; the model can only tighten privacy. Unparseable output still becomes one Inbox entry.
+- `LibraryRepository`: accept / change / reject / undo; move, split (move to a new topic), merge, rename and delete for entries, topics and subjects; delete a junk session completely. Each change rebuilds the affected topic pages (grouped by type, numbered, de-duplicated) and FTS5 documents. Deleting a topic sends its entries to the Inbox unless you choose "Delete topic and entries".
+- Screens: Library (subjects → topics, "Needs a subject"), Subject, Topic (page, entries, v1 page, Rewrite summary via LLM, export), Entry (edit, type, privacy, move, delete), Inbox (Accept / Change / Reject, Filed today with Undo). Home links to Library and Inbox; search covers entries. Settings: privacy for new entries.
+- Version 0.2.0 (versionCode 2).
+
+Tests:
+- JVM (`:core`): `FilingTest` (11), `LegacyAndPageTest` (5), `LegacyPlannerTest` (1); all pass locally.
+- Instrumented: `MigrationTest` (3: real v1 data through `MigrationTestHelper` with schema validation, empty DB, full chain), `LibraryTest` (7: filing with a scripted model, Inbox, move/split/merge/rename/delete, junk-session delete, FTS5, export), `DatabaseTest` (1). Emulator tests run in CI only (no KVM in the dev container).
+
+Phone test (OnePlus 13R, 1 Nov 2026): installed over v1 with data intact. Step 5 (a real session with Qwen2.5-3B) gave 2 entries, both sent to the Inbox, none auto-filed. Rejecting one worked, and so did moving the other to a new subject and topic.
+
+To tune later (not yet fixed):
+- **Filing may be over-cautious (0 of 2 auto-filed).** The likely cause is the rule, not the model: an entry auto-files only when its proposed subject *and* topic already exist and are confirmed, and straight after migration most topics are unassigned or in the Inbox. Check this with a second session on a topic that now exists. If that still lands in the Inbox, look at `FilingPolicy` (the model's CONFIDENCE line, the 0.75 name-match threshold, and topics without a subject that cannot match).
+
+Known limitations:
+- Filing quality depends on the model; Qwen2.5-0.5B (CI) does not follow the entry format reliably, which is why filing is tested with a scripted model. Expect more Inbox items with 3B than with a larger model.
+- The page "rewrite" is deterministic (group, number, de-duplicate); the LLM only writes the optional summary paragraph on request.
+- Butler-suggested links between topics (§6.4) are not in this phase.
+- Topic export is manual only; v1 auto-exported every page to Documents, which would put Private entries in shared storage.
+
+### v2 design pass (phase 6, pulled forward)
+Built, following docs/design-spec.md, with the "Mind-map App Redesign" canvas as the visual reference:
+- **Theme** (`ui/theme/Theme.kt`): every §2 token as `MindColors`, light and dark (dark derived from the spec's dark values), plus a Material 3 scheme derived from them. Dynamic colour is off. The Session focus palette is always dark. Every text/background pair used was checked at ≥ 4.5:1 (lowest: muted on ground, 5.16:1). No screen hard-codes a colour (checked by grep).
+- **Fonts:** Newsreader (400, 500) and Inter (400, 500, 600) bundled as static TTFs cut from the OFL variable fonts, about 1.2 MB. Licences are in `assets/licenses`. No network.
+- **Components:** bottom bar Home · Library · [Talk] · Inbox with a raised 62 dp Talk button and an Inbox badge; type, privacy and "Needs you" chips; pill buttons; bordered cards; dashed empty-shelf card; book spines; "M" avatar.
+- **Screens:**
+  - Home: greeting, inbox strip, Continue, shelves, recent sessions.
+  - Session: dark focus mode, "M asks" questions in Newsreader with an accent rule, "You · Xs · transcribed in Ys" captions, a live waveform driven by the real microphone level (new `SpeechInput.level`), 76 dp mic with a pulsing halo, model-loading line, typed input.
+  - Wrap-up/Inbox: one screen. After Wrap up (button or saying "wrap up") it opens with that session's results and the "I filed two entries. One needs your call." headline. Needs-you cards come first, and accepting one collapses it to a confirmation line. Then the Filed automatically list with Undo.
+  - Library: totals, FTS5 search, a privacy filter that works, spines with rotating colours, empty shelves, "Needs a subject", "+ New subject".
+  - Topic: Summary and Entries tabs, the summary drawn from typed entries, sticky "Continue topic".
+  - Entry and Subject screens are restyled too.
+- **Motion:** Material shared-axis X for pushed screens, a fade for Session, filing results fading in one by one (≤ 180 ms each). Compose follows the system "remove animations" setting.
+- **Screenshot tests** (Roborazzi 1.32.2 + Robolectric 4.14.1, JVM): 10 cases × light/dark = 20 goldens in `app/src/test/screenshots`. CI runs them in verify mode and uploads the images. A deliberately swapped golden failed verification locally, so the check is real.
+- No schema change. Version 0.3.0 (versionCode 3) installs over 0.2.0.
+
+Not built (no feature behind them yet): the Ask tab and screen (phase 3), the Butler screen (phase 2; the "M" avatar opens Settings until then), the nudge card (phase 4), Listen/Interview modes (phase 2), and "Ask about this" on topics (phase 3). "Continue topic" starts a session titled with the topic; it does not yet steer filing to that topic. Whisper has no live partial transcript, so Session shows "Listening…" rather than fake partial text.
+
+### Full canvas UI with functionality (2 Nov 2026, owner's request)
+Built:
+- **Repair: the "General" topic.** v1 named unclassifiable sessions "General", and the v2 migration kept that topic, filing it under a confidently guessed subject. `MIGRATION_3_4` is data-only: entries under a catch-all topic go back to the Inbox (subject kept as the suggestion), the kept v1 page becomes one Inbox entry so nothing is lost, and the topic is deleted. `LegacyPlanner` now never keeps a catch-all v1 topic. Covered by `MigrationTest` (3 → 4 with your case, and 2 → 4) and a core unit test. The search index rebuilds once.
+- **Butler** (`ButlerProfile`, `ButlerPrompt`, `ButlerRepository`, Butler screen): name, "calls you", four tone sliders, interview style (Sharp engineer by default; Curious fresher; Sceptical reviewer), optional character notes. The live interview prompt is built from the profile. The prompt is identical for every turn of a session, so the KV-cache prefix is reused. The name appears throughout the UI. The greeting uses "calls you".
+- **Journal:** when you change or discard the butler's filing suggestion in the Inbox, it notes how you file things. The latest notes are fed into the filing prompt and shown on the Butler screen (with Clear).
+- **Listen / Interview** switch in Session: Listen captures without asking questions.
+- **Ask** tab and screen: keyword retrieval (FTS5, any-word, bm25) over entries, then the LLM answers only from the numbered entries, with numbered citation chips that open the entry. When nothing is found: "Nothing yet, I'm afraid. Shall I interview you on it now?" with Start an interview. Questions can be typed or spoken (whisper push-to-talk). Topic pages have "Ask about this".
+- **Nudge card** on Home (`NudgeEngine`, deterministic). Order: a topic with open questions, then something said 30+ days ago ("Three months ago you said …"), then "Anything worth keeping from today?" when there has been no session today. Talk now starts a session on it; Later hides it until tomorrow.
+- Bottom bar: Home · Library · [Talk] · Ask · Inbox.
+
+Limits: Ask matches words, not meaning, until the embedding model (phase 3). Nudges show only in the app; there are no notifications yet. The journal learns from your Inbox corrections only; the butler does not yet track "promises".
+
+### MYM change set (3 Nov 2026, one PR, owner's request)
+Renamed and rebuilt on a clean database (owner accepted losing test data):
+- **Rename:** app "MYM – Map your Mind", launcher "MYM", application id and Kotlin packages `com.maheshreddy.mym`, new launcher icon, DB `mym.db` at schema version 1 (v1/v2 migrations and their tests removed). Same signing key and CI signing. Because the id changed, MYM installs next to the old app; it does not carry the old data.
+- **Navigation:** bottom bar Home · Library · [Talk] · Ask · Map. Inbox is an icon with a badge at the top right of Home (full screen); the avatar menu holds Butler and Settings; Home shows "N entries need your call" and recent sessions with topic and a one-line summary.
+- **Settings:** Models, Speech recognition (language English/multilingual, editable domain vocabulary passed to whisper, mic test), Voice (engine, Android voice, speed, pitch, sample), Butler, Nudges (types, time, quiet hours), Privacy (default Private, biometric/PIN app lock), Storage (per model and library, clear cache), Backup (AES-256-GCM, PBKDF2 210k, to a file you choose), Performance (LLM benchmark, last timings), About (version, each installed model's licence).
+- **Model manager:** 32-model catalogue generated from the Hugging Face API at pinned revisions with official hashes (SHA-256 for LFS files, git blob SHA-1 for small files); device fit (RAM budget, expected speed from the phone baseline, quality tier, licence, "Recommended for your phone"); filter and sort; WorkManager downloads (foreground, Wi-Fi only by default, HTTP Range resume, pause, cancel), verified before activation; import kept; activate, switch, delete (never the only active model). **Full** and **Sealed** flavours; CI checks the Sealed release has no INTERNET permission.
+- **Onboarding:** Welcome → device check → recommended bundle with total size → download → butler name, "calls you", interview style and areas to map → microphone and notifications → first session. Runs once; an existing install sees current choices pre-filled.
+- **Ask, AI-powered:** every entry is embedded on the phone with llama.cpp (new `Embedder` JNI, L2-normalised, model's own pooling), in the background: up to 50 right after a filing, the rest only while charging; vectors are rebuilt when the text or the model changes. Retrieval fuses meaning (cosine) and FTS5 (bm25 order) with Reciprocal Rank Fusion; a per-model similarity bar decides "nothing relevant". The active LLM answers only from the numbered entries, with citation chips. Privacy chips filter what the model may see; spoken answers optional; suggested questions from your topics; empty library explains and offers a session.
+- **Map:** pure Compose Canvas. Subjects are clusters on a spiral pushed apart until none overlap; topics are sized by entry count; links come from shared terms (Jaccard) or close topic embeddings, at most 3 suggestions per topic, dashed until confirmed (confirm/dismiss stored in DataStore and included in backups). Gaps: topics with ≤ 1 entry or open questions, and empty subjects. Pinch-zoom/pan, privacy and time filters, Growth animation, preview card (Open topic / Continue by talking / Interview me on this). Empty library: the onboarding areas appear as "Start here" clusters.
+- **Session:** Send turns into Wrap up (check) when the field is empty; Wrap up waits 5 s with Undo; voice "wrap up" unchanged; top bar back, Listen/Interview, overflow (Rename, Delete). Filing results open as a bottom sheet (File / Change / Discard, Undo); closing goes Home.
+- **Empty states:** Inbox: "Nothing needs your call", stats (entries this week, topics, day streak) and the last 5 filed with Undo. Library: per-subject progress ("% solid") and up to 3 gap suggestions (your vocabulary not yet in any entry, open questions, thin topics).
+- **Bugs fixed:** sessions stuck "In progress" (Resume/Wrap up on reopen; sessions with no turns deleted at launch and on leaving; open over 12 h → Wrap up card in the Inbox); duplicate sessions in the same minute (cause: a double tap started two; now guarded and a still-empty session from the last 2 minutes is reused); a topic showing 0 entries (its entries were still waiting in the Inbox under that topic's name; tiles now say "· N in Inbox", and truly empty topics can be deleted from Library and the topic page); Butler heading shows the butler's name and the style description wraps.
+
+Tests added: core `CatalogTest`, `RetrievalTest` (fusion, privacy filter, no-match, keyword-only), `KnowledgeMapTest` (8), `StatsTest`, `GapsTest`, `NudgeSettingsTest`, `BackupCryptoTest`; instrumented `DownloaderTest` (real 885 KB download, resume, checksum mismatch), `AskTest` (BGE retrieval by meaning, "nothing relevant", privacy filter, citation chips, empty states), `ScreensTest` (Settings, onboarding, Send/Wrap up/Undo, Map), `SessionCleanupTest`, llama `EmbedderTest`; screenshots for every new screen in light and dark.
+
+Measured on the dev machine (llama.cpp host build, BGE small en v1.5 Q8): a paraphrased question scored 0.59 against its entry and unrelated questions 0.31–0.40, so BGE's "relevant" bar is 0.50. The bar for other embedding models (0.45) is not measured yet.
+
+Known limitations:
+- Map links are computed when the Map opens; with hundreds of topics the pairwise comparison may take a moment (runs off the main thread).
+- The Map canvas is not navigable by TalkBack beyond a summary; the Library holds the same information accessibly.
+- Expected speeds in the model manager are estimates scaled from the v1 phone baseline, not measurements.
+- The 0.45 similarity bar for non-BGE embedding models is a guess until measured.
+
+# v1
+
 | Phase | Scope | Status |
 |---|---|---|
 | 1 | Project skeleton, Compose UI shell, Room database, CI workflow | ✅ CI green |

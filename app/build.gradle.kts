@@ -6,21 +6,22 @@ plugins {
     alias(libs.plugins.kotlin.compose)
     alias(libs.plugins.ksp)
     alias(libs.plugins.hilt)
+    alias(libs.plugins.roborazzi)
 }
 
 // The shipped app is arm64-v8a only. CI passes -PwithX86_64 to add an x86_64 build for the emulator.
 val emulatorAbi = providers.gradleProperty("withX86_64").isPresent
 
 android {
-    namespace = "com.freshernotes.app"
+    namespace = "com.maheshreddy.mym"
     compileSdk = 35
 
     defaultConfig {
-        applicationId = "com.freshernotes.app"
+        applicationId = "com.maheshreddy.mym"
         minSdk = 29
         targetSdk = 35
         versionCode = 1
-        versionName = "0.1.0"
+        versionName = "1.0.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         ndk {
             abiFilters += "arm64-v8a"
@@ -40,6 +41,21 @@ android {
                 keyAlias = providers.environmentVariable("DEBUG_KEY_ALIAS").orElse("androiddebugkey").get()
                 keyPassword = providers.environmentVariable("DEBUG_KEYSTORE_PASSWORD").orElse("android").get()
             }
+        }
+    }
+
+    // Full: can download models (INTERNET, used only for model downloads). Sealed: no INTERNET permission at all;
+    // models are imported from files. Same applicationId and signing key, so either installs over the other.
+    flavorDimensions += "network"
+    productFlavors {
+        create("full") {
+            dimension = "network"
+            buildConfigField("boolean", "MODEL_DOWNLOADS", "true")
+        }
+        create("sealed") {
+            dimension = "network"
+            versionNameSuffix = "-sealed"
+            buildConfigField("boolean", "MODEL_DOWNLOADS", "false")
         }
     }
 
@@ -64,7 +80,12 @@ android {
 
     testOptions {
         unitTests.isReturnDefaultValues = true
+        // Screenshot tests (Robolectric + Roborazzi) render real resources: the bundled fonts and themes.
+        unitTests.isIncludeAndroidResources = true
     }
+
+    // Exported Room schemas (app/schemas), so MigrationTestHelper can build every past database version.
+    sourceSets.getByName("androidTest").assets.srcDir("$projectDir/schemas")
 
     packaging {
         resources.excludes += "/META-INF/{AL2.0,LGPL2.1}"
@@ -110,9 +131,17 @@ dependencies {
     implementation(libs.hilt.navigation.compose)
 
     implementation(libs.kotlinx.coroutines.android)
+    implementation(libs.work.runtime)
+    implementation(libs.biometric)
 
     testImplementation(libs.junit)
     testImplementation(libs.kotlinx.coroutines.test)
+    testImplementation(libs.robolectric)
+    testImplementation(libs.roborazzi)
+    testImplementation(libs.roborazzi.compose)
+    testImplementation(libs.roborazzi.junit.rule)
+    testImplementation(platform(libs.androidx.compose.bom))
+    testImplementation(libs.androidx.compose.ui.test.junit4)
 
     androidTestImplementation(libs.junit)
     androidTestImplementation(libs.androidx.test.runner)
@@ -120,6 +149,13 @@ dependencies {
     androidTestImplementation(libs.androidx.test.ext.junit)
     androidTestImplementation(libs.kotlinx.coroutines.test)
     androidTestImplementation(libs.androidx.room.testing)
+    androidTestImplementation(libs.work.testing)
     androidTestImplementation(platform(libs.androidx.compose.bom))
     androidTestImplementation(libs.androidx.compose.ui.test.junit4)
+}
+
+// Screenshot goldens live in src/test/screenshots (committed). Record: ./gradlew recordRoborazziFullDebug.
+// CI runs testFullDebugUnitTest with -Proborazzi.test.verify=true and fails on any visual change.
+roborazzi {
+    outputDir.set(file("src/test/screenshots"))
 }

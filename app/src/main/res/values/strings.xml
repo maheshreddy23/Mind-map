@@ -1,3 +1,5 @@
 <resources>
-    <string name="app_name">Fresher Notes</string>
+    <!-- Launcher label. -->
+    <string name="app_name">MYM</string>
+    <string name="app_full_name">MYM – Map your Mind</string>
 </resources>

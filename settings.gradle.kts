@@ -13,7 +13,7 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "FresherNotes"
+rootProject.name = "MYM"
 
 include(":core")
 include(":whisper")
