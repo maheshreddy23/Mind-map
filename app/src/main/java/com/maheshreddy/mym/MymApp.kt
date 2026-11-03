@@ -23,6 +23,7 @@ class MymApp : Application() {
     @Inject lateinit var engines: Engines
     @Inject lateinit var nudgeScheduler: com.maheshreddy.mym.nudges.NudgeScheduler
     @Inject lateinit var settings: com.maheshreddy.mym.data.settings.SettingsRepository
+    @Inject lateinit var embeddings: com.maheshreddy.mym.search.EmbeddingIndexer
 
     /** The LLM holds ~2-3 GB; give it back when the system is short of memory. */
     @Suppress("DEPRECATION")
@@ -50,6 +51,8 @@ class MymApp : Application() {
             runCatching { nudgeScheduler.schedule(settings.settings.first()) }
             // Finish filing that was interrupted (app killed after "wrap up").
             runCatching { filer.filePending() }
+            // Embed entries not yet embedded (new embedding model, restored backup); large backlogs wait for charging.
+            embeddings.request()
         }
     }
 

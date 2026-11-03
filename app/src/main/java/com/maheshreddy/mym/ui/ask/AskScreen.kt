@@ -65,6 +65,8 @@ import com.maheshreddy.mym.ui.components.ScreenTitle
 import com.maheshreddy.mym.ui.theme.Mind
 import com.maheshreddy.mym.ui.theme.MindDimens
 import com.maheshreddy.mym.core.library.AnswerPart
+import com.maheshreddy.mym.core.library.Privacy
+import com.maheshreddy.mym.ui.components.PillStyle
 
 /** One question and the butler's reply. */
 data class Exchange(val id: Int, val question: String, val reply: Reply)
@@ -76,7 +78,16 @@ sealed interface Reply {
     data class Failed(val message: String) : Reply
 }
 
-data class AskUiState(val exchanges: List<Exchange> = emptyList(), val listening: Boolean = false)
+data class AskUiState(
+    val exchanges: List<Exchange> = emptyList(),
+    val listening: Boolean = false,
+    /** Privacy levels whose entries Ask may use. */
+    val include: Set<Privacy> = Privacy.entries.toSet(),
+    /** 3–4 questions drawn from the user's own topics (empty state). */
+    val suggestions: List<String> = emptyList(),
+    val libraryEmpty: Boolean = false,
+    val speakAnswers: Boolean = false,
+)
 
 @Composable
 fun AskScreen(
@@ -91,6 +102,7 @@ fun AskScreen(
     val requestMic = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { if (it) vm.toggleVoice() }
     AskContent(
         state, onAsk = vm::ask, onOpenEntry = onOpenEntry, onInterview = onInterview,
+        onTogglePrivacy = vm::togglePrivacy, onToggleSpeak = { vm.toggleSpeak() },
         onVoice = {
             if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) vm.toggleVoice()
             else requestMic.launch(Manifest.permission.RECORD_AUDIO)
@@ -106,6 +118,8 @@ fun AskContent(
     onOpenEntry: (Long) -> Unit,
     onInterview: (String) -> Unit,
     onVoice: () -> Unit,
+    onTogglePrivacy: (Privacy) -> Unit = {},
+    onToggleSpeak: () -> Unit = {},
 ) {
     val c = Mind.colors
     val list = rememberLazyListState()
@@ -118,8 +132,27 @@ fun AskContent(
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
             item { ScreenTitle("Ask") }
+            item { AskFilters(state, onTogglePrivacy, onToggleSpeak) }
             if (state.exchanges.isEmpty()) item {
-                Caption("Ask anything you've told $BUTLER_NAME, for example \"What have I said about datum selection?\" Answers cite the entries they come from.")
+                if (state.libraryEmpty) {
+                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Caption("Ask answers only from what you've told $BUTLER_NAME, and cites the entries it used. Your library is empty so far: talk for a few minutes and $BUTLER_NAME will file what you say.")
+                        Row { Pill("Start a session", { onInterview("") }, Modifier.testTag("askStartSession")) }
+                    }
+                } else {
+                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Caption("Ask anything you've told $BUTLER_NAME. Answers cite the entries they come from. Try:")
+                        state.suggestions.forEach { q ->
+                            Text(
+                                q, style = Mind.type.body, color = c.ink,
+                                modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(c.surface)
+                                    .border(1.dp, c.line, RoundedCornerShape(14.dp))
+                                    .clickable(role = Role.Button) { onAsk(q) }.padding(horizontal = 14.dp, vertical = 12.dp)
+                                    .testTag("suggestion"),
+                            )
+                        }
+                    }
+                }
             }
             items(state.exchanges, key = { it.id }) { ex ->
                 Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
@@ -136,6 +169,26 @@ fun AskContent(
             }
         }
         AskBar(state.listening, onAsk, onVoice)
+    }
+}
+
+/** Which privacy levels Ask may draw on, and whether answers are read aloud. */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun AskFilters(state: AskUiState, onTogglePrivacy: (Privacy) -> Unit, onToggleSpeak: () -> Unit) {
+    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Privacy.entries.forEach { p ->
+            val on = p in state.include
+            Pill(
+                p.label, { onTogglePrivacy(p) },
+                Modifier.testTag("include_${p.name}").semantics { contentDescription = "${p.label} entries ${if (on) "included" else "excluded"}" },
+                style = if (on) PillStyle.INK else PillStyle.OUTLINE, height = 34.dp,
+            )
+        }
+        Pill(
+            if (state.speakAnswers) "Speaking answers" else "Speak answers", onToggleSpeak, Modifier.testTag("speakAnswers"),
+            style = if (state.speakAnswers) PillStyle.INK else PillStyle.OUTLINE, height = 34.dp,
+        )
     }
 }
 
@@ -178,8 +231,8 @@ private fun ReplyView(ex: Exchange, onOpenEntry: (Long) -> Unit, onInterview: (S
                 }
             }
             Reply.Nothing -> {
-                Text("Nothing yet, I'm afraid. Shall I interview you on it now?", style = Mind.type.reading.copy(fontSize = Mind.type.reading.fontSize.times(19f / 18f)), color = c.ink)
-                Pill("Start an interview", { onInterview(ex.question) }, Modifier.testTag("startInterview"))
+                Text("Nothing in your entries covers that yet. Shall I interview you on it now?", style = Mind.type.reading.copy(fontSize = Mind.type.reading.fontSize.times(19f / 18f)), color = c.ink)
+                Pill("Start an interview on this", { onInterview(ex.question) }, Modifier.testTag("startInterview"))
             }
             is Reply.Failed -> Text(r.message, style = Mind.type.body, color = c.ink)
         }

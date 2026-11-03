@@ -9,6 +9,7 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import com.maheshreddy.mym.models.ModelStore
 import com.maheshreddy.mym.core.audio.EnergySpeechDetector
 import com.maheshreddy.mym.core.audio.SpeechDetector
+import com.maheshreddy.mym.llama.Embedder
 import com.maheshreddy.mym.llama.LlamaEngine
 import com.maheshreddy.mym.whisper.SileroVad
 import com.maheshreddy.mym.whisper.WhisperEngine
@@ -53,6 +54,8 @@ class Engines @Inject constructor(
     private val llmLock = Mutex()
     private val vadLock = Mutex()
     private val ttsLock = Mutex()
+    private val embedLock = Mutex()
+    private var embedder: Pair<File, Embedder>? = null
     private var whisper: Pair<File, WhisperEngine>? = null
     private var vad: Pair<File, SileroVad>? = null
     private var llm: Pair<File, LlamaEngine>? = null
@@ -101,6 +104,14 @@ class Engines @Inject constructor(
         }
     }
 
+    /** The sentence-embedding model for Ask's search by meaning, or null when none is installed (keyword search). */
+    suspend fun embedder(): Embedder? = embedLock.withLock {
+        val file = models.file(ModelKind.EMBEDDING) ?: return null
+        embedder?.takeIf { it.first == file }?.let { return it.second }
+        embedder?.second?.close(); embedder = null
+        withContext(Dispatchers.IO) { Embedder.load(file) }.also { embedder = file to it }
+    }
+
     suspend fun whisper(): WhisperEngine = whisperLock.withLock {
         val file = models.file(ModelKind.WHISPER) ?: throw MissingModelException(ModelKind.WHISPER)
         whisper?.takeIf { it.first == file }?.let { return it.second }
@@ -142,6 +153,7 @@ class Engines @Inject constructor(
         whisperLock.withLock { whisper?.second?.close(); whisper = null }
         vadLock.withLock { vad?.second?.close(); vad = null }
         llmLock.withLock { llm?.second?.close(); llm = null }
+        embedLock.withLock { embedder?.second?.close(); embedder = null }
         ttsLock.withLock {
             piper?.second?.close(); piper = null
             system?.close(); system = null

@@ -57,7 +57,7 @@ class LibraryTest {
     fun setUp() {
         db = Room.inMemoryDatabaseBuilder(context, AppDatabase::class.java).build()
         index = SearchIndex.inMemory()
-        library = LibraryRepository(db, index)
+        library = LibraryRepository(db, index, com.maheshreddy.mym.search.EmbeddingIndexer(ApplicationProvider.getApplicationContext()))
         sessions = SessionRepository(db.sessionDao(), db.turnDao())
     }
 

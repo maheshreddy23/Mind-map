@@ -128,7 +128,7 @@ fun AppNavHost(pendingTalk: kotlinx.coroutines.flow.MutableStateFlow<String?>? =
                     com.maheshreddy.mym.ui.ask.AskScreen(
                         initialQuestion = entry.arguments?.getString("q"),
                         onOpenEntry = openEntry,
-                        onInterview = { q -> talk.start(openSession, topic = q) },
+                        onInterview = { q -> talk.start(openSession, topic = q.ifBlank { null }) },
                     )
                 }
                 composable(Routes.BUTLER) { com.maheshreddy.mym.ui.butler.ButlerScreen(onBack = back, onOpenSettings = { nav.navigate(Routes.SETTINGS) }) }

@@ -39,6 +39,7 @@ class LibraryException(message: String) : Exception(message)
 class LibraryRepository @Inject constructor(
     private val db: AppDatabase,
     private val index: SearchIndex,
+    private val embeddings: com.maheshreddy.mym.search.EmbeddingIndexer,
 ) {
     private val subjects = db.subjectDao()
     private val topics = db.topicDao()
@@ -79,6 +80,7 @@ class LibraryRepository @Inject constructor(
     suspend fun subject(id: Long) = subjects.get(id)
     suspend fun topic(id: Long) = topics.get(id)
     suspend fun entry(id: Long) = entries.get(id)
+    suspend fun allFiledEntries() = entries.allFiled()
     suspend fun allSubjects() = subjects.getAll()
     suspend fun topicsOf(subjectId: Long) = topics.getForSubject(subjectId)
 
@@ -323,6 +325,7 @@ class LibraryRepository @Inject constructor(
     private suspend fun indexEntry(id: Long) {
         val e = entries.get(id) ?: return
         index.upsert(DocKind.ENTRY, id, e.title, e.body)
+        embeddings.request()
     }
 
     /** Rebuilds the whole search index from Room (after the v2 migration, or if the index is lost). */

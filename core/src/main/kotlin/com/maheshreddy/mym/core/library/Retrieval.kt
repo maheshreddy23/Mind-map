@@ -12,8 +12,16 @@ data class Candidate(val entryId: Long, val privacy: Privacy, val vector: FloatA
  * to the model. If nothing is close enough in meaning and no words match, the answer is "nothing relevant".
  */
 object Retrieval {
-    /** Cosine similarity below this is "not about the question" for the small embedders used here. */
+    /**
+     * Cosine similarity below this is "not about the question". Embedding models differ, so [minSimilarityFor] picks
+     * a bar per model. BGE small v1.5 was measured with llama.cpp: a paraphrased question scored 0.59 against its
+     * entry, unrelated questions (cooking, football) 0.31–0.40, so its bar is 0.50 (AskTest checks this on the
+     * emulator). The default for other models is not measured yet; the LLM's own "nothing in the entries" answer is
+     * the second safety net.
+     */
     const val MIN_SIMILARITY = 0.45f
+
+    fun minSimilarityFor(modelKey: String?): Float = if (modelKey?.contains("bge", ignoreCase = true) == true) 0.50f else MIN_SIMILARITY
     private const val RRF_K = 60.0
 
     data class Hit(val entryId: Long, val score: Double, val similarity: Float?, val keywordRank: Int?)
@@ -28,13 +36,14 @@ object Retrieval {
         keywordIds: List<Long>,
         allowed: Set<Privacy> = Privacy.entries.toSet(),
         limit: Int = 5,
+        minSimilarity: Float = MIN_SIMILARITY,
     ): List<Hit> {
         val byId = candidates.associateBy { it.entryId }
         val visible = candidates.filter { it.privacy in allowed }.map { it.entryId }.toSet()
         val semantic = if (query == null) emptyList() else candidates
             .filter { it.entryId in visible && it.vector != null && it.vector.size == query.size }
             .map { it.entryId to cosine(query, it.vector!!) }
-            .filter { it.second >= MIN_SIMILARITY }
+            .filter { it.second >= minSimilarity }
             .sortedByDescending { it.second }
         val keyword = keywordIds.filter { it in visible && it in byId }
         val semRank = semantic.mapIndexed { i, (id, _) -> id to i }.toMap()

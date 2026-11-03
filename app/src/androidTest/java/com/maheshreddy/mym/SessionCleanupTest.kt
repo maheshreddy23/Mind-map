@@ -82,7 +82,7 @@ class SessionCleanupTest {
 
     @Test
     fun emptyTopicsAreListedAndCanBeDeleted() = runBlocking {
-        val library = LibraryRepository(db, SearchIndex.inMemory())
+        val library = LibraryRepository(db, SearchIndex.inMemory(), com.maheshreddy.mym.search.EmbeddingIndexer(ApplicationProvider.getApplicationContext()))
         val d = FilingDecision(EntryStatus.INBOX, null, null, null, null, EntryType.KNOWLEDGE, Privacy.PRIVATE, "Mouse buttons", "- b", 0.2, "t")
         val id = library.file(null, listOf(d)).single()
         val topic = library.accept(id, Pick.New("Computers"), Pick.New("Benefits of Mouse Button Usage"))
