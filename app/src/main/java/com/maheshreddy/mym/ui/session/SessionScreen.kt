@@ -449,10 +449,10 @@ private fun Waveform(level: Float) {
 private fun WrapUndoBar(onUndo: () -> Unit) {
     Row(
         Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp).clip(RoundedCornerShape(12.dp))
-            .background(FocusColors.text).padding(start = 16.dp).testTag("wrapSnackbar"),
+            .background(FocusColors.controlBg).border(1.dp, FocusColors.line, RoundedCornerShape(12.dp)).padding(start = 16.dp).testTag("wrapSnackbar"),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text("Wrapping up…", style = Mind.type.body, color = FocusColors.bg, modifier = Modifier.weight(1f))
+        Text("Wrapping up…", style = Mind.type.body, color = FocusColors.text, modifier = Modifier.weight(1f))
         androidx.compose.material3.TextButton(onClick = onUndo, modifier = Modifier.testTag("undoWrap")) {
             Text("Undo", style = Mind.type.button, color = FocusColors.accent)
         }

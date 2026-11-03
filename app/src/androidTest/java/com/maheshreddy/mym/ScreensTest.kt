@@ -89,7 +89,7 @@ class ScreensTest {
         }
         compose.onNodeWithText("MYM – Map your Mind").assertExists()
         compose.onNodeWithTag("onboardingNext").performClick()
-        compose.onNodeWithTag("deviceDescription").assertExists()
+        compose.onNodeWithTag("deviceDescription", useUnmergedTree = true).assertExists()
         compose.onNodeWithTag("onboardingNext").performClick()
         compose.onNodeWithTag("onboarding_BUNDLE").assertExists()
         compose.onNodeWithTag("bundleTotal").assertExists()

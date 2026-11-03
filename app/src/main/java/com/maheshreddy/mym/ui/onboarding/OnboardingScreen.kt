@@ -241,7 +241,7 @@ fun OnboardingContent(state: OnboardingUiState, actions: OnboardingActions) {
                 OnboardingStep.BUNDLE -> {
                     if (state.canDownload && state.toDownload > 0) {
                         Pill("Import instead", actions.onSkipDownload, style = PillStyle.OUTLINE, height = MindDimens.touch)
-                        Pill("Download ${ModelsViewModel.sizeLabel(state.toDownload)}", actions.onDownload, Modifier.testTag("downloadBundle"), height = MindDimens.touch)
+                        Pill("Download", actions.onDownload, Modifier.testTag("downloadBundle"), height = MindDimens.touch)
                     } else if (!state.canDownload && state.toDownload > 0) {
                         Pill("Import files", actions.onSkipDownload, Modifier.testTag("importInstead"), height = MindDimens.touch)
                     } else Pill("Next", { actions.onNext(); actions.onNext() }, Modifier.testTag("onboardingNext"), height = MindDimens.touch)
