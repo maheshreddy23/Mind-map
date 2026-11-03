@@ -6,6 +6,10 @@ import android.provider.OpenableColumns
 import androidx.documentfile.provider.DocumentFile
 import com.maheshreddy.mym.core.ModelFileCheck
 import com.maheshreddy.mym.core.OfficialChecksums
+import com.maheshreddy.mym.core.models.Catalog
+import com.maheshreddy.mym.core.models.CatalogModel
+import com.maheshreddy.mym.core.models.ModelCategory
+import com.maheshreddy.mym.core.models.SharedData
 import java.security.MessageDigest
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
@@ -17,22 +21,45 @@ import java.io.File
 import javax.inject.Inject
 import javax.inject.Singleton
 
-/** Model slots the app needs. Files are copied from user storage (SAF) into app-private storage. */
+/**
+ * Model slots the app uses, one active model each. Models come from the in-app catalogue (downloaded and
+ * checksum-verified) or are imported from user storage (SAF); both live in app-private storage (filesDir/models).
+ */
 enum class ModelKind(
     val label: String,
     val required: Boolean,
     val isDirectory: Boolean,
     val hint: String,
     val format: ModelFileCheck.Format,
+    val category: ModelCategory,
 ) {
-    WHISPER("Speech-to-text (whisper)", true, false, "ggml-base.en.bin or ggml-small.en.bin", ModelFileCheck.Format.GGML),
-    VAD("Voice activity detection (Silero)", false, false, "ggml-silero-v5.1.2.bin (optional; energy VAD otherwise)", ModelFileCheck.Format.GGML),
-    LLM("Language model (GGUF)", true, false, "qwen2.5-3b-instruct-q4_k_m.gguf", ModelFileCheck.Format.GGUF),
+    WHISPER("Speech-to-text (whisper)", true, false, "ggml-base.en.bin or ggml-small.en.bin", ModelFileCheck.Format.GGML, ModelCategory.SPEECH),
+    VAD("Voice activity detection (Silero)", false, false, "ggml-silero-v5.1.2.bin (optional; energy VAD otherwise)", ModelFileCheck.Format.GGML, ModelCategory.VAD),
+    LLM("Language model (GGUF)", true, false, "a GGUF chat model, e.g. Qwen3-4B-Instruct-2507-Q4_K_M.gguf", ModelFileCheck.Format.GGUF, ModelCategory.LLM),
     TTS(
         "Piper voice (folder)", false, true,
-        "folder with *.onnx, tokens.txt and espeak-ng-data/ (optional; Android TTS otherwise)", ModelFileCheck.Format.ONNX_FOLDER,
+        "folder with *.onnx, tokens.txt and espeak-ng-data/ (optional; Android TTS otherwise)", ModelFileCheck.Format.ONNX_FOLDER, ModelCategory.VOICE,
     ),
+    EMBEDDING("Embeddings (GGUF)", false, false, "a GGUF sentence-embedding model, e.g. bge-small-en-v1.5-q8_0.gguf (optional; keyword search otherwise)", ModelFileCheck.Format.GGUF, ModelCategory.EMBEDDING);
+
+    companion object {
+        fun of(c: ModelCategory) = entries.first { it.category == c }
+    }
 }
+
+/** A model present on the phone: from the catalogue ([catalog] set) or imported ([catalog] null). */
+data class InstalledModel(
+    val id: String,
+    val kind: ModelKind,
+    val name: String,
+    /** The file engines load (the voice folder for TTS). */
+    val main: File,
+    val dir: File,
+    val sizeBytes: Long,
+    val catalog: CatalogModel?,
+    /** True when every file matched its official checksum. */
+    val verified: Boolean,
+)
 
 data class ImportProgress(val kind: ModelKind, val copiedBytes: Long, val totalBytes: Long, val verifying: Boolean = false)
 
@@ -48,8 +75,19 @@ data class ModelIntegrity(
 
 @Singleton
 class ModelStore @Inject constructor(@ApplicationContext private val context: Context) {
-    private val root = File(context.filesDir, "models")
+    /** All models live here (app-private, never shared storage). */
+    val root = File(context.filesDir, "models")
+    val catalogRoot = File(root, "catalog")
+    /** espeak-ng-data shared by all Piper voices. */
+    val espeakDir = File(root, "shared/espeak-ng-data")
+    private val activeFile = File(root, "active.properties")
+
+    private val _models = MutableStateFlow(scanAll())
+    /** Every installed model (catalogue and imported). */
+    val models: StateFlow<List<InstalledModel>> = _models.asStateFlow()
+
     private val _installed = MutableStateFlow(scan())
+    /** The active model's file per slot (what the engines load). */
     val installed: StateFlow<Map<ModelKind, File>> = _installed.asStateFlow()
 
     private val hashDir = File(root, ".hashes")
@@ -64,14 +102,89 @@ class ModelStore @Inject constructor(@ApplicationContext private val context: Co
 
     val missingRequired: List<ModelKind> get() = ModelKind.entries.filter { it.required && file(it) == null }
 
-    private fun dir(kind: ModelKind) = File(root, kind.name.lowercase())
+    /** Id of the active model per slot ("import:<KIND>" for an imported file). */
+    fun activeId(kind: ModelKind): String? = active()[kind] ?: _models.value.firstOrNull { it.kind == kind }?.id
 
-    private fun scan(): Map<ModelKind, File> = ModelKind.entries.mapNotNull { kind ->
-        val d = dir(kind)
-        val entry = if (kind.isDirectory) d.takeIf { it.isDirectory && !it.list().isNullOrEmpty() }
-        else d.listFiles()?.firstOrNull { it.isFile && !it.name.endsWith(".part") }
-        entry?.let { kind to it }
-    }.toMap()
+    fun active(kind: ModelKind): InstalledModel? = activeId(kind)?.let { id -> _models.value.firstOrNull { it.id == id } }
+
+    private fun dir(kind: ModelKind) = File(root, kind.name.lowercase())
+    fun catalogDir(id: String) = File(catalogRoot, id)
+
+    private fun active(): Map<ModelKind, String> = runCatching {
+        java.util.Properties().apply { activeFile.inputStream().use { load(it) } }
+            .entries.mapNotNull { (k, v) -> runCatching { ModelKind.valueOf(k.toString()) to v.toString() }.getOrNull() }.toMap()
+    }.getOrDefault(emptyMap())
+
+    /** Makes [id] the active model of its slot. */
+    fun activate(id: String) {
+        val m = _models.value.firstOrNull { it.id == id } ?: throw IllegalArgumentException("Model $id is not installed")
+        val props = java.util.Properties()
+        active().forEach { (k, v) -> props[k.name] = v }
+        props[m.kind.name] = id
+        root.mkdirs()
+        activeFile.outputStream().use { props.store(it, "Active model per slot") }
+        refresh()
+    }
+
+    /** Re-reads what is installed (after a download, import or delete). */
+    fun refresh() {
+        _models.value = scanAll()
+        _installed.value = scan()
+    }
+
+    private fun scanAll(): List<InstalledModel> {
+        val imported = ModelKind.entries.mapNotNull { kind ->
+            val d = dir(kind)
+            val entry = if (kind.isDirectory) d.takeIf { it.isDirectory && !it.list().isNullOrEmpty() }
+            else d.listFiles()?.firstOrNull { it.isFile && !it.name.endsWith(".part") }
+            entry?.let {
+                val integrity = runCatching { File(File(root, ".hashes"), kind.name).readLines() }.getOrNull()
+                val verified = integrity?.getOrNull(2)?.let { sha -> OfficialChecksums.verdict(it.name, sha) == OfficialChecksums.Verdict.MATCHES_OFFICIAL } == true
+                InstalledModel("import:${kind.name}", kind, "Imported: ${it.name}", it, d, sizeOf(d), null, verified)
+            }
+        }
+        val fromCatalog = catalogRoot.listFiles()?.filter { it.isDirectory && File(it, ".complete").isFile }?.mapNotNull { d ->
+            val m = Catalog.byId(d.name) ?: return@mapNotNull null
+            val kind = ModelKind.of(m.category)
+            val main = if (kind.isDirectory) d else File(d, m.files.first().fileName)
+            InstalledModel(m.id, kind, m.name, main, d, sizeOf(d), m, verified = true)
+        }.orEmpty()
+        return fromCatalog + imported
+    }
+
+    // _models is declared before _installed, so it is initialised when scan() first runs.
+    private fun scan(): Map<ModelKind, File> {
+        val all = _models.value
+        val act = active()
+        return ModelKind.entries.mapNotNull { kind ->
+            val chosen = act[kind]?.let { id -> all.firstOrNull { it.id == id } } ?: all.firstOrNull { it.kind == kind }
+            chosen?.let { kind to it.main }
+        }.toMap()
+    }
+
+    /**
+     * Deletes a model. The active model of a required slot (speech, language model) is only deleted when another
+     * model can take over, which then becomes active.
+     */
+    fun delete(id: String) {
+        val m = _models.value.firstOrNull { it.id == id } ?: return
+        val others = _models.value.filter { it.kind == m.kind && it.id != id }
+        if (m.kind.required && activeId(m.kind) == id && others.isEmpty()) {
+            throw IllegalStateException("${m.name} is the only ${m.kind.category.label.lowercase()} model. Download or import another before deleting it.")
+        }
+        m.dir.deleteRecursively()
+        if (m.catalog == null) File(File(root, ".hashes"), m.kind.name).delete()
+        if (activeId(m.kind) == id || active()[m.kind] == id) others.firstOrNull()?.let { activate(it.id) }
+        if (m.kind == ModelKind.TTS && _models.value.none { it.kind == ModelKind.TTS && it.id != id }) espeakDir.parentFile?.deleteRecursively()
+        _integrity.value = loadIntegrity()
+        refresh()
+    }
+
+    /** Bytes used by models (total) and free space on the internal storage volume. */
+    fun usedBytes(): Long = sizeOf(root)
+    fun freeBytes(): Long = root.apply { mkdirs() }.usableSpace
+
+    fun sizeOf(f: File): Long = if (f.isDirectory) f.listFiles()?.sumOf { sizeOf(it) } ?: 0 else if (f.exists() && !java.nio.file.Files.isSymbolicLink(f.toPath())) f.length() else 0
 
     /** Copies a single file (or, for directory kinds, a whole tree) into private storage, replacing the old one. */
     suspend fun import(kind: ModelKind, uri: Uri) = withContext(Dispatchers.IO) {
@@ -129,10 +242,14 @@ class ModelStore @Inject constructor(@ApplicationContext private val context: Co
             }
             target.deleteRecursively()
             check(staging.renameTo(target)) { "Could not move model into place" }
+            // An imported file that is a catalogue model (same SHA-256) is filed as that verified model and made
+            // active; any other import becomes the active model of its slot.
+            refresh()
+            if (!adoptIfCatalog(kind)) activate("import:${kind.name}")
         } finally {
             staging.deleteRecursively()
             _progress.value = null
-            _installed.value = scan()
+            refresh()
         }
     }
 
@@ -140,7 +257,7 @@ class ModelStore @Inject constructor(@ApplicationContext private val context: Co
         dir(kind).deleteRecursively()
         File(hashDir, kind.name).delete()
         _integrity.value = loadIntegrity()
-        _installed.value = scan()
+        refresh()
     }
 
     /** Hashes the installed file and compares it with the official checksum (for models imported earlier). */
@@ -153,6 +270,23 @@ class ModelStore @Inject constructor(@ApplicationContext private val context: Co
         } finally {
             _progress.value = null
         }
+    }
+
+    /** Moves an imported file into the catalogue layout when its hash matches a catalogue file. */
+    private fun adoptIfCatalog(kind: ModelKind): Boolean {
+        if (kind.isDirectory) return false
+        val sha = runCatching { File(hashDir, kind.name).readLines()[2] }.getOrNull() ?: return false
+        val m = Catalog.models.firstOrNull { cm -> cm.files.size == 1 && cm.files[0].hash.equals(sha, true) } ?: return false
+        val src = dir(kind).listFiles()?.firstOrNull { it.isFile } ?: return false
+        val dest = catalogDir(m.id).apply { deleteRecursively(); mkdirs() }
+        check(src.renameTo(File(dest, m.files[0].fileName))) { "Could not file the imported model" }
+        File(dest, ".complete").writeText(sha)
+        dir(kind).deleteRecursively()
+        File(hashDir, kind.name).delete()
+        _integrity.value = loadIntegrity()
+        refresh()
+        activate(m.id)
+        return true
     }
 
     private fun saveIntegrity(kind: ModelKind, i: ModelIntegrity) {

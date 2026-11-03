@@ -52,7 +52,7 @@ jobs:
       # Unit tests include the Compose screenshot tests; verify mode fails on any visual change against
       # the committed goldens in app/src/test/screenshots (re-record with ./gradlew recordRoborazziDebug).
       - name: Build debug APK and run unit + screenshot tests
-        run: ./gradlew assembleDebug testDebugUnitTest :core:test -Proborazzi.test.verify=true --stacktrace
+        run: ./gradlew assembleFullDebug assembleSealedDebug testFullDebugUnitTest :core:test -Proborazzi.test.verify=true --stacktrace
 
       - name: Upload screenshots
         if: always()
@@ -63,14 +63,16 @@ jobs:
             app/src/test/screenshots/
             app/build/outputs/roborazzi/
 
-      - name: Build release APK and verify it cannot reach the network
+      - name: Build release APKs; Sealed must not be able to reach the network
         run: |
-          ./gradlew assembleRelease --stacktrace
-          APK=app/build/outputs/apk/release/app-release.apk
-          "$ANDROID_HOME/build-tools/35.0.0/aapt2" dump permissions "$APK" | tee permissions.txt
-          if grep -q "android.permission.INTERNET" permissions.txt; then
-            echo "::error::Release APK declares INTERNET"; exit 1
+          ./gradlew assembleFullRelease assembleSealedRelease --stacktrace
+          AAPT="$ANDROID_HOME/build-tools/35.0.0/aapt2"
+          "$AAPT" dump permissions app/build/outputs/apk/sealed/release/app-sealed-release.apk | tee sealed-permissions.txt
+          if grep -q "android.permission.INTERNET" sealed-permissions.txt; then
+            echo "::error::Sealed release APK declares INTERNET"; exit 1
           fi
+          "$AAPT" dump permissions app/build/outputs/apk/full/release/app-full-release.apk | tee full-permissions.txt
+          grep -q "android.permission.INTERNET" full-permissions.txt || { echo "::error::Full release APK cannot download models (no INTERNET)"; exit 1; }
 
       - name: Verify APKs are signed with the fixed key (so updates install over each other)
         env:
@@ -81,17 +83,20 @@ jobs:
             exit 0
           fi
           EXPECTED=$(keytool -exportcert -keystore keystore/debug.keystore -storepass android -alias androiddebugkey 2>/dev/null | sha256sum | cut -d' ' -f1)
-          for APK in app/build/outputs/apk/debug/app-debug.apk app/build/outputs/apk/release/app-release.apk; do
+          for APK in app/build/outputs/apk/full/debug/app-full-debug.apk app/build/outputs/apk/sealed/debug/app-sealed-debug.apk app/build/outputs/apk/full/release/app-full-release.apk app/build/outputs/apk/sealed/release/app-sealed-release.apk; do
             ACTUAL=$("$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --print-certs "$APK" | grep -m1 "certificate SHA-256 digest" | awk '{print $NF}')
             echo "$APK -> $ACTUAL"
             if [ "$ACTUAL" != "$EXPECTED" ]; then echo "::error::$APK is not signed with the DEBUG_KEYSTORE_B64 key"; exit 1; fi
           done
 
-      - name: Upload debug APK
+      - name: Upload APKs
         uses: actions/upload-artifact@v4
         with:
-          name: app-debug
-          path: app/build/outputs/apk/debug/app-debug.apk
+          name: mym-apks
+          path: |
+            app/build/outputs/apk/full/debug/app-full-debug.apk
+            app/build/outputs/apk/sealed/debug/app-sealed-debug.apk
+            app/build/outputs/apk/sealed/release/app-sealed-release.apk
 
       - name: Upload unit test reports
         if: failure()
@@ -146,7 +151,7 @@ jobs:
         run: scripts/download-test-models.sh test-models
 
       - name: Build test APKs (x86_64 included)
-        run: ./gradlew -PwithX86_64 assembleDebug assembleDebugAndroidTest --stacktrace
+        run: ./gradlew -PwithX86_64 assembleFullDebug assembleFullDebugAndroidTest --stacktrace
 
       - name: Run instrumented tests
         uses: reactivecircus/android-emulator-runner@v2
@@ -161,7 +166,7 @@ jobs:
           disable-animations: true
           script: |
             scripts/push-test-models.sh test-models
-            ./gradlew -PwithX86_64 connectedDebugAndroidTest --stacktrace
+            ./gradlew -PwithX86_64 connectedFullDebugAndroidTest :whisper:connectedDebugAndroidTest :llama:connectedDebugAndroidTest :tts:connectedDebugAndroidTest --stacktrace
 
       - name: Upload instrumented test reports
         if: always()

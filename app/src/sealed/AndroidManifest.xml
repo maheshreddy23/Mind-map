@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Release builds must never reach the network: strip INTERNET even if a dependency declares it. -->
+<!-- Sealed flavour: guaranteed offline. Strip network permissions even if a library declares them. -->
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
     <uses-permission android:name="android.permission.INTERNET" tools:node="remove" />

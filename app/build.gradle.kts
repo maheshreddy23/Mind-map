@@ -44,6 +44,21 @@ android {
         }
     }
 
+    // Full: can download models (INTERNET, used only for model downloads). Sealed: no INTERNET permission at all;
+    // models are imported from files. Same applicationId and signing key, so either installs over the other.
+    flavorDimensions += "network"
+    productFlavors {
+        create("full") {
+            dimension = "network"
+            buildConfigField("boolean", "MODEL_DOWNLOADS", "true")
+        }
+        create("sealed") {
+            dimension = "network"
+            versionNameSuffix = "-sealed"
+            buildConfigField("boolean", "MODEL_DOWNLOADS", "false")
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = false
@@ -116,6 +131,8 @@ dependencies {
     implementation(libs.hilt.navigation.compose)
 
     implementation(libs.kotlinx.coroutines.android)
+    implementation(libs.work.runtime)
+    implementation(libs.biometric)
 
     testImplementation(libs.junit)
     testImplementation(libs.kotlinx.coroutines.test)
@@ -132,12 +149,13 @@ dependencies {
     androidTestImplementation(libs.androidx.test.ext.junit)
     androidTestImplementation(libs.kotlinx.coroutines.test)
     androidTestImplementation(libs.androidx.room.testing)
+    androidTestImplementation(libs.work.testing)
     androidTestImplementation(platform(libs.androidx.compose.bom))
     androidTestImplementation(libs.androidx.compose.ui.test.junit4)
 }
 
-// Screenshot goldens live in src/test/screenshots (committed). Record: ./gradlew recordRoborazziDebug.
-// CI: ./gradlew verifyRoborazziDebug fails on any visual change.
+// Screenshot goldens live in src/test/screenshots (committed). Record: ./gradlew recordRoborazziFullDebug.
+// CI runs testFullDebugUnitTest with -Proborazzi.test.verify=true and fails on any visual change.
 roborazzi {
     outputDir.set(file("src/test/screenshots"))
 }
