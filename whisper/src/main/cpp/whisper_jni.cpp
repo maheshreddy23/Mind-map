@@ -1,4 +1,4 @@
-// JNI bridge between com.freshernotes.whisper.WhisperNative and whisper.cpp.
+// JNI bridge between com.maheshreddy.mym.whisper.WhisperNative and whisper.cpp.
 #include <jni.h>
 #include <string>
 #include <vector>
@@ -64,7 +64,7 @@ jstring toJString(JNIEnv *env, const std::string &s) {
 extern "C" {
 
 JNIEXPORT jlong JNICALL
-Java_com_freshernotes_whisper_WhisperNative_initContext(JNIEnv *env, jobject, jstring jpath) {
+Java_com_maheshreddy_mym_whisper_WhisperNative_initContext(JNIEnv *env, jobject, jstring jpath) {
     clearLastError();
     const char *path = env->GetStringUTFChars(jpath, nullptr);
     whisper_context_params cparams = whisper_context_default_params();
@@ -88,7 +88,7 @@ Java_com_freshernotes_whisper_WhisperNative_initContext(JNIEnv *env, jobject, js
 }
 
 JNIEXPORT void JNICALL
-Java_com_freshernotes_whisper_WhisperNative_freeContext(JNIEnv *, jobject, jlong ptr) {
+Java_com_maheshreddy_mym_whisper_WhisperNative_freeContext(JNIEnv *, jobject, jlong ptr) {
     Handle *h = toHandle(ptr);
     if (h == nullptr) return;
     whisper_free(h->ctx);
@@ -96,13 +96,13 @@ Java_com_freshernotes_whisper_WhisperNative_freeContext(JNIEnv *, jobject, jlong
 }
 
 JNIEXPORT void JNICALL
-Java_com_freshernotes_whisper_WhisperNative_requestAbort(JNIEnv *, jobject, jlong ptr) {
+Java_com_maheshreddy_mym_whisper_WhisperNative_requestAbort(JNIEnv *, jobject, jlong ptr) {
     Handle *h = toHandle(ptr);
     if (h != nullptr) h->abort.store(true);
 }
 
 JNIEXPORT jstring JNICALL
-Java_com_freshernotes_whisper_WhisperNative_transcribe(
+Java_com_maheshreddy_mym_whisper_WhisperNative_transcribe(
         JNIEnv *env, jobject, jlong ptr, jfloatArray jsamples, jint threads, jstring jprompt) {
     Handle *h = toHandle(ptr);
     if (h == nullptr) return nullptr;
@@ -150,20 +150,20 @@ Java_com_freshernotes_whisper_WhisperNative_transcribe(
 }
 
 JNIEXPORT jstring JNICALL
-Java_com_freshernotes_whisper_WhisperNative_lastError(JNIEnv *env, jobject) {
+Java_com_maheshreddy_mym_whisper_WhisperNative_lastError(JNIEnv *env, jobject) {
     std::lock_guard<std::mutex> lock(g_err_mutex);
     return env->NewStringUTF(g_last_error.c_str());
 }
 
 JNIEXPORT jstring JNICALL
-Java_com_freshernotes_whisper_WhisperNative_systemInfo(JNIEnv *env, jobject) {
+Java_com_maheshreddy_mym_whisper_WhisperNative_systemInfo(JNIEnv *env, jobject) {
     return env->NewStringUTF(whisper_print_system_info());
 }
 
 // ---- Silero VAD (streaming) -------------------------------------------------------------
 
 JNIEXPORT jlong JNICALL
-Java_com_freshernotes_whisper_WhisperNative_vadInit(JNIEnv *env, jobject, jstring jpath, jint threads) {
+Java_com_maheshreddy_mym_whisper_WhisperNative_vadInit(JNIEnv *env, jobject, jstring jpath, jint threads) {
     const char *path = env->GetStringUTFChars(jpath, nullptr);
     whisper_vad_context_params vparams = whisper_vad_default_context_params();
     vparams.n_threads = threads > 0 ? threads : 1;
@@ -184,7 +184,7 @@ Java_com_freshernotes_whisper_WhisperNative_vadInit(JNIEnv *env, jobject, jstrin
 
 /** Returns the highest speech probability across the (512-sample) windows in [jsamples]; LSTM state carries over. */
 JNIEXPORT jfloat JNICALL
-Java_com_freshernotes_whisper_WhisperNative_vadProbability(JNIEnv *env, jobject, jlong ptr, jfloatArray jsamples) {
+Java_com_maheshreddy_mym_whisper_WhisperNative_vadProbability(JNIEnv *env, jobject, jlong ptr, jfloatArray jsamples) {
     auto *vctx = reinterpret_cast<whisper_vad_context *>(ptr);
     if (vctx == nullptr) return -1.0f;
     const jsize n = env->GetArrayLength(jsamples);
@@ -199,19 +199,19 @@ Java_com_freshernotes_whisper_WhisperNative_vadProbability(JNIEnv *env, jobject,
 }
 
 JNIEXPORT void JNICALL
-Java_com_freshernotes_whisper_WhisperNative_vadReset(JNIEnv *, jobject, jlong ptr) {
+Java_com_maheshreddy_mym_whisper_WhisperNative_vadReset(JNIEnv *, jobject, jlong ptr) {
     auto *vctx = reinterpret_cast<whisper_vad_context *>(ptr);
     if (vctx != nullptr) whisper_vad_reset_state(vctx);
 }
 
 JNIEXPORT void JNICALL
-Java_com_freshernotes_whisper_WhisperNative_vadFree(JNIEnv *, jobject, jlong ptr) {
+Java_com_maheshreddy_mym_whisper_WhisperNative_vadFree(JNIEnv *, jobject, jlong ptr) {
     auto *vctx = reinterpret_cast<whisper_vad_context *>(ptr);
     if (vctx != nullptr) whisper_vad_free(vctx);
 }
 
 JNIEXPORT void JNICALL
-Java_com_freshernotes_whisper_WhisperNative_installLogger(JNIEnv *, jobject) {
+Java_com_maheshreddy_mym_whisper_WhisperNative_installLogger(JNIEnv *, jobject) {
     // whisper/ggml log every VAD chunk at INFO; only forward warnings and errors.
     whisper_log_set([](ggml_log_level level, const char *text, void *) {
         if (level == GGML_LOG_LEVEL_WARN || level == GGML_LOG_LEVEL_ERROR) {

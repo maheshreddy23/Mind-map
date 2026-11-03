@@ -45,7 +45,7 @@ val fetchSherpaOnnx by tasks.registering {
 }
 
 android {
-    namespace = "com.freshernotes.tts"
+    namespace = "com.maheshreddy.mym.tts"
     compileSdk = 35
 
     defaultConfig {

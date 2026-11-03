@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- MYM monogram: a serif-style "M" in ivory on the brand teal (adaptive icon foreground, 108dp canvas). -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp" android:height="108dp" android:viewportWidth="108" android:viewportHeight="108">
+    <path android:fillColor="#F7F5F0"
+        android:pathData="M34,72 L34,69.5 L37,69 L37,39 L34,38.5 L34,36 L44,36 L54,61 L64,36 L74,36 L74,38.5 L71,39 L71,69 L74,69.5 L74,72 L61.5,72 L61.5,69.5 L65,69 L65,45 L55.6,69 L52.4,69 L43,45 L43,69 L46.5,69.5 L46.5,72 Z" />
+</vector>

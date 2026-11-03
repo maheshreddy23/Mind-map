@@ -8,7 +8,7 @@ plugins {
 val emulatorAbi = providers.gradleProperty("withX86_64").isPresent
 
 android {
-    namespace = "com.freshernotes.whisper"
+    namespace = "com.maheshreddy.mym.whisper"
     compileSdk = 35
     ndkVersion = rootProject.extra["ndkVersion"] as String
 

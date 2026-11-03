@@ -1,6 +1,6 @@
 <resources>
     <!-- Window background matches the Compose ground token, so there is no white flash before the first frame. -->
-    <style name="Theme.FresherNotes" parent="android:Theme.Material.Light.NoActionBar">
+    <style name="Theme.Mym" parent="android:Theme.Material.Light.NoActionBar">
         <item name="android:windowBackground">@color/ground</item>
     </style>
 </resources>

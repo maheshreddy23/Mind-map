@@ -13,15 +13,15 @@ plugins {
 val emulatorAbi = providers.gradleProperty("withX86_64").isPresent
 
 android {
-    namespace = "com.freshernotes.app"
+    namespace = "com.maheshreddy.mym"
     compileSdk = 35
 
     defaultConfig {
-        applicationId = "com.freshernotes.app"
+        applicationId = "com.maheshreddy.mym"
         minSdk = 29
         targetSdk = 35
-        versionCode = 4
-        versionName = "0.4.0"
+        versionCode = 1
+        versionName = "1.0.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         ndk {
             abiFilters += "arm64-v8a"
@@ -69,7 +69,7 @@ android {
         unitTests.isIncludeAndroidResources = true
     }
 
-    // Exported Room schemas, so MigrationTestHelper can build every past database version.
+    // Exported Room schemas (app/schemas), so MigrationTestHelper can build every past database version.
     sourceSets.getByName("androidTest").assets.srcDir("$projectDir/schemas")
 
     packaging {

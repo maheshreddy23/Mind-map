@@ -1,4 +1,4 @@
-// JNI bridge between com.freshernotes.llama.LlamaNative and llama.cpp.
+// JNI bridge between com.maheshreddy.mym.llama.LlamaNative and llama.cpp.
 // Keeps the tokens currently in the KV cache so each new prompt only decodes the part that changed
 // (the persona prompt and earlier turns are reused), which is what keeps time-to-first-token low.
 #include <jni.h>
@@ -123,7 +123,7 @@ bool decodeTokens(Session *s, const llama_token *tokens, int n) {
 extern "C" {
 
 JNIEXPORT void JNICALL
-Java_com_freshernotes_llama_LlamaNative_backendInit(JNIEnv *, jobject) {
+Java_com_maheshreddy_mym_llama_LlamaNative_backendInit(JNIEnv *, jobject) {
     llama_log_set([](ggml_log_level level, const char *text, void *) {
         if (level == GGML_LOG_LEVEL_WARN || level == GGML_LOG_LEVEL_ERROR) {
             LOGE("%s", text);
@@ -134,7 +134,7 @@ Java_com_freshernotes_llama_LlamaNative_backendInit(JNIEnv *, jobject) {
 }
 
 JNIEXPORT jlong JNICALL
-Java_com_freshernotes_llama_LlamaNative_load(JNIEnv *env, jobject, jstring jpath, jint nCtx, jint threads) {
+Java_com_maheshreddy_mym_llama_LlamaNative_load(JNIEnv *env, jobject, jstring jpath, jint nCtx, jint threads) {
     clearLastError();
     const std::string path = fromJString(env, jpath);
     llama_model_params mparams = llama_model_default_params();
@@ -175,7 +175,7 @@ Java_com_freshernotes_llama_LlamaNative_load(JNIEnv *env, jobject, jstring jpath
 }
 
 JNIEXPORT void JNICALL
-Java_com_freshernotes_llama_LlamaNative_free(JNIEnv *, jobject, jlong p) {
+Java_com_maheshreddy_mym_llama_LlamaNative_free(JNIEnv *, jobject, jlong p) {
     Session *s = S(p);
     if (s == nullptr) return;
     llama_free(s->ctx);
@@ -184,34 +184,34 @@ Java_com_freshernotes_llama_LlamaNative_free(JNIEnv *, jobject, jlong p) {
 }
 
 JNIEXPORT jint JNICALL
-Java_com_freshernotes_llama_LlamaNative_contextSize(JNIEnv *, jobject, jlong p) {
+Java_com_maheshreddy_mym_llama_LlamaNative_contextSize(JNIEnv *, jobject, jlong p) {
     return static_cast<jint>(llama_n_ctx(S(p)->ctx));
 }
 
 JNIEXPORT jint JNICALL
-Java_com_freshernotes_llama_LlamaNative_countTokens(JNIEnv *env, jobject, jlong p, jstring jtext) {
+Java_com_maheshreddy_mym_llama_LlamaNative_countTokens(JNIEnv *env, jobject, jlong p, jstring jtext) {
     return static_cast<jint>(tokenize(S(p)->vocab, fromJString(env, jtext), false).size());
 }
 
 /** The model's built-in Jinja chat template (or null); used to pick the prompt format. */
 JNIEXPORT jstring JNICALL
-Java_com_freshernotes_llama_LlamaNative_chatTemplate(JNIEnv *env, jobject, jlong p) {
+Java_com_maheshreddy_mym_llama_LlamaNative_chatTemplate(JNIEnv *env, jobject, jlong p) {
     const char *tmpl = llama_model_chat_template(S(p)->model, nullptr);
     return tmpl ? env->NewStringUTF(tmpl) : nullptr;
 }
 
 JNIEXPORT void JNICALL
-Java_com_freshernotes_llama_LlamaNative_setThreads(JNIEnv *, jobject, jlong p, jint threads) {
+Java_com_maheshreddy_mym_llama_LlamaNative_setThreads(JNIEnv *, jobject, jlong p, jint threads) {
     llama_set_n_threads(S(p)->ctx, threads, threads);
 }
 
 JNIEXPORT void JNICALL
-Java_com_freshernotes_llama_LlamaNative_requestAbort(JNIEnv *, jobject, jlong p) {
+Java_com_maheshreddy_mym_llama_LlamaNative_requestAbort(JNIEnv *, jobject, jlong p) {
     if (S(p) != nullptr) S(p)->abort.store(true);
 }
 
 JNIEXPORT void JNICALL
-Java_com_freshernotes_llama_LlamaNative_clearCache(JNIEnv *, jobject, jlong p) {
+Java_com_maheshreddy_mym_llama_LlamaNative_clearCache(JNIEnv *, jobject, jlong p) {
     Session *s = S(p);
     llama_memory_clear(llama_get_memory(s->ctx), true);
     s->cached.clear();
@@ -222,7 +222,7 @@ Java_com_freshernotes_llama_LlamaNative_clearCache(JNIEnv *, jobject, jlong p) {
  * callback.onToken(byte[]) which returns false to stop. Returns the number of generated tokens, or -1 on error.
  */
 JNIEXPORT jint JNICALL
-Java_com_freshernotes_llama_LlamaNative_generate(
+Java_com_maheshreddy_mym_llama_LlamaNative_generate(
         JNIEnv *env, jobject, jlong p, jstring jprompt, jint maxTokens,
         jfloat temperature, jfloat topP, jint seed, jobject callback) {
     Session *s = S(p);
@@ -295,13 +295,13 @@ Java_com_freshernotes_llama_LlamaNative_generate(
 }
 
 JNIEXPORT jstring JNICALL
-Java_com_freshernotes_llama_LlamaNative_lastError(JNIEnv *env, jobject) {
+Java_com_maheshreddy_mym_llama_LlamaNative_lastError(JNIEnv *env, jobject) {
     std::lock_guard<std::mutex> lock(g_err_mutex);
     return env->NewStringUTF(g_last_error.c_str());
 }
 
 JNIEXPORT jstring JNICALL
-Java_com_freshernotes_llama_LlamaNative_systemInfo(JNIEnv *env, jobject) {
+Java_com_maheshreddy_mym_llama_LlamaNative_systemInfo(JNIEnv *env, jobject) {
     return env->NewStringUTF(llama_print_system_info());
 }
 
