@@ -79,6 +79,12 @@ class Engines @Inject constructor(
         system ?: SystemSynthesizer(context).also { system = it }
     }
 
+    /** Offline English voices of the Android TTS engine (Settings → Voice). */
+    suspend fun systemVoices(): List<String> {
+        val sys = ttsLock.withLock { system ?: SystemSynthesizer(context).also { system = it } }
+        return sys.offlineVoices()
+    }
+
     suspend fun llm(): LlamaEngine = llmLock.withLock {
         val file = models.file(ModelKind.LLM) ?: throw MissingModelException(ModelKind.LLM)
         llm?.takeIf { it.first == file }?.let { return it.second }

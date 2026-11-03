@@ -14,11 +14,28 @@ class SystemSynthesizer(context: Context) : SpeechSynthesizer {
     override val name = "Android TTS"
     private val ready = CompletableDeferred<Boolean>()
     private val tts = TextToSpeech(context.applicationContext) { status -> ready.complete(status == TextToSpeech.SUCCESS) }
+    @Volatile private var pitch = 1.0f
+    @Volatile private var voiceName: String? = null
+
+    override fun configure(pitch: Float, voice: String?) {
+        this.pitch = pitch
+        this.voiceName = voice?.takeIf { it.isNotBlank() }
+    }
+
+    /** Offline English voices installed on the phone (names for Settings → Voice). */
+    suspend fun offlineVoices(): List<String> {
+        if (!ready.await()) return emptyList()
+        return runCatching {
+            tts.voices.orEmpty().filter { it.locale.language == "en" && !it.isNetworkConnectionRequired }.map { it.name }.sorted()
+        }.getOrDefault(emptyList())
+    }
 
     override suspend fun speak(text: String, rate: Float) {
         check(ready.await()) { "Android TextToSpeech is unavailable" }
         tts.setLanguage(Locale.US)
+        voiceName?.let { name -> tts.voices?.firstOrNull { it.name == name }?.let { tts.voice = it } }
         tts.setSpeechRate(rate)
+        tts.setPitch(pitch)
         val id = UUID.randomUUID().toString()
         suspendCancellableCoroutine { cont ->
             tts.setOnUtteranceProgressListener(object : UtteranceProgressListener() {

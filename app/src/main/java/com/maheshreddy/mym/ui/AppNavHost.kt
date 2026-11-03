@@ -33,7 +33,6 @@ import com.maheshreddy.mym.ui.library.InboxScreen
 import com.maheshreddy.mym.ui.library.LibraryScreen
 import com.maheshreddy.mym.ui.library.SubjectScreen
 import com.maheshreddy.mym.ui.library.TopicScreen
-import com.maheshreddy.mym.ui.models.ModelSection
 import com.maheshreddy.mym.ui.session.SessionScreen
 import com.maheshreddy.mym.ui.settings.SettingsScreen
 
@@ -49,6 +48,8 @@ object Routes {
     const val TOPIC = "topic/{topicId}"
     const val ENTRY = "entry/{entryId}"
     const val SETTINGS = "settings"
+    const val MODELS = "models?category={category}"
+    fun models(category: String? = null) = "models?category=" + (category ?: "")
     fun session(id: Long) = "session/$id"
     fun results(sessionId: Long) = "results/$sessionId"
     fun subject(id: Long) = "subject/$id"
@@ -86,7 +87,7 @@ private val popExit: AnimatedContentTransitionScope<NavBackStackEntry>.() -> Exi
 }
 
 @Composable
-fun AppNavHost(talk: TalkViewModel = hiltViewModel()) {
+fun AppNavHost(pendingTalk: kotlinx.coroutines.flow.MutableStateFlow<String?>? = null, talk: TalkViewModel = hiltViewModel()) {
     val nav = rememberNavController()
     val back: () -> Unit = { nav.popBackStack() }
     val openSession: (Long) -> Unit = { nav.navigate(Routes.session(it)) }
@@ -99,6 +100,14 @@ fun AppNavHost(talk: TalkViewModel = hiltViewModel()) {
     val tab = Routes.tabs[current?.destination?.route]
     val inboxCount by talk.inboxCount.collectAsStateWithLifecycle()
     val butlerName by talk.butlerName.collectAsStateWithLifecycle()
+    // "Talk now" from a nudge notification.
+    val requestedTalk = pendingTalk?.collectAsStateWithLifecycle()?.value
+    androidx.compose.runtime.LaunchedEffect(requestedTalk) {
+        if (requestedTalk != null) {
+            talk.start(openSession, topic = requestedTalk.ifEmpty { null })
+            pendingTalk.value = null
+        }
+    }
 
     androidx.compose.runtime.CompositionLocalProvider(com.maheshreddy.mym.ui.components.LocalButlerName provides butlerName) {
     Column(Modifier.fillMaxSize()) {
@@ -122,7 +131,7 @@ fun AppNavHost(talk: TalkViewModel = hiltViewModel()) {
                         onInterview = { q -> talk.start(openSession, topic = q) },
                     )
                 }
-                composable(Routes.BUTLER) { com.maheshreddy.mym.ui.butler.ButlerScreen(onBack = back) }
+                composable(Routes.BUTLER) { com.maheshreddy.mym.ui.butler.ButlerScreen(onBack = back, onOpenSettings = { nav.navigate(Routes.SETTINGS) }) }
                 composable(Routes.LIBRARY) {
                     LibraryScreen(onOpenSubject = openSubject, onOpenTopic = openTopic, onOpenEntry = openEntry, onOpenSession = openSession, onTalk = onTalk)
                 }
@@ -152,7 +161,14 @@ fun AppNavHost(talk: TalkViewModel = hiltViewModel()) {
                     EntryScreen(onBack = back, onOpenTopic = openTopic, onOpenSession = openSession)
                 }
                 composable(Routes.SETTINGS) {
-                    SettingsScreen(onBack = back, modelSection = { ModelSection() })
+                    SettingsScreen(
+                        onBack = back,
+                        onOpenModels = { c -> nav.navigate(Routes.models(c)) },
+                        onOpenButler = { nav.navigate(Routes.BUTLER) },
+                    )
+                }
+                composable(Routes.MODELS, arguments = listOf(navArgument("category") { type = NavType.StringType; defaultValue = "" })) {
+                    com.maheshreddy.mym.ui.models.ModelManagerScreen(onBack = back)
                 }
             }
         }

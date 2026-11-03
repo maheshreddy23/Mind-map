@@ -26,11 +26,12 @@ class HomeViewModel @Inject constructor(
     private val library: LibraryRepository,
     models: ModelStore,
     private val butler: ButlerRepository,
+    nudges: com.maheshreddy.mym.nudges.NudgeService,
 ) : ViewModel() {
     private val tiles = combine(library.observeAllTopics(), library.observeSubjects(), library.observeTopicCounts()) { topics, subjects, counts ->
         Triple(topics, subjects, LibraryUi.tiles(topics, subjects, counts))
     }
-    private val extras = combine(library.observeOldestFiled(), butler.profile, butler.nudgeSnoozedUntil) { a, b, c -> Triple(a, b, c) }
+    private val extras = combine(nudges.current, butler.profile) { a, b -> a to b }
 
     val state = combine(
         tiles,
@@ -38,17 +39,7 @@ class HomeViewModel @Inject constructor(
         sessions.recentSessions(5),
         models.installed,
         extras,
-    ) { (topics, subjects, tiles), inbox, recent, installed, (oldest, profile, snoozed) ->
-        val now = System.currentTimeMillis()
-        val startOfToday = LibraryRepository.startOfDay(now)
-        val nudge = NudgeEngine.pick(
-            NudgeInput(
-                now = now, startOfToday = startOfToday, snoozedUntil = snoozed,
-                topics = tiles.map { NudgeTopic(it.id, it.title, it.openQuestions) },
-                oldest = oldest?.let { e -> NudgeEntry(e.id, e.title, topics.firstOrNull { it.id == e.topicId }?.title, e.createdAt) },
-                sessionsToday = recent.count { it.startedAt >= startOfToday },
-            ),
-        )
+    ) { (topics, subjects, tiles), inbox, recent, installed, (nudge, profile) ->
         HomeUiState(
             greeting = greeting(Calendar.getInstance().get(Calendar.HOUR_OF_DAY)) + profile.callsYou.trim().takeIf { it.isNotEmpty() }?.let { ", $it" }.orEmpty(),
             missingModels = ModelKind.entries.filter { it.required && it !in installed }.map { it.label },

@@ -103,7 +103,7 @@ Java_com_maheshreddy_mym_whisper_WhisperNative_requestAbort(JNIEnv *, jobject, j
 
 JNIEXPORT jstring JNICALL
 Java_com_maheshreddy_mym_whisper_WhisperNative_transcribe(
-        JNIEnv *env, jobject, jlong ptr, jfloatArray jsamples, jint threads, jstring jprompt) {
+        JNIEnv *env, jobject, jlong ptr, jfloatArray jsamples, jint threads, jstring jprompt, jstring jlanguage) {
     Handle *h = toHandle(ptr);
     if (h == nullptr) return nullptr;
     h->abort.store(false);
@@ -119,9 +119,18 @@ Java_com_maheshreddy_mym_whisper_WhisperNative_transcribe(
         env->ReleaseStringUTFChars(jprompt, p);
     }
 
+    // "en" for English-only models and English; "auto" lets a multilingual model detect the language.
+    std::string language = "en";
+    if (jlanguage != nullptr) {
+        const char *l = env->GetStringUTFChars(jlanguage, nullptr);
+        language = l;
+        env->ReleaseStringUTFChars(jlanguage, l);
+    }
+    if (!whisper_is_multilingual(h->ctx)) language = "en";
+
     whisper_full_params params = whisper_full_default_params(WHISPER_SAMPLING_GREEDY);
     params.n_threads = threads > 0 ? threads : 4;
-    params.language = "en";
+    params.language = language.c_str();
     params.translate = false;
     params.no_context = true;
     params.single_segment = false;

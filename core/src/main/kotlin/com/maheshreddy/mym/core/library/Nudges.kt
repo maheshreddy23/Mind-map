@@ -10,6 +10,8 @@ data class NudgeInput(
     /** The oldest filed entry, if any, for spaced review. */
     val oldest: NudgeEntry?,
     val sessionsToday: Int,
+    /** Nudge types switched on in Settings. */
+    val enabled: Set<Nudge.Kind> = Nudge.Kind.entries.toSet(),
 )
 
 data class NudgeTopic(val id: Long, val title: String, val openQuestions: Int)
@@ -31,14 +33,14 @@ object NudgeEngine {
 
     fun pick(input: NudgeInput): Nudge? {
         if (input.now < input.snoozedUntil) return null
-        input.topics.filter { it.openQuestions > 0 }.maxWithOrNull(compareBy({ it.openQuestions }, { -it.id }))?.let { t ->
+        if (Nudge.Kind.UNFINISHED_TOPIC in input.enabled) input.topics.filter { it.openQuestions > 0 }.maxWithOrNull(compareBy({ it.openQuestions }, { -it.id }))?.let { t ->
             val q = if (t.openQuestions == 1) "an open question" else "${t.openQuestions} open questions"
             return Nudge(Nudge.Kind.UNFINISHED_TOPIC, "${t.title} still has $q. Ten minutes on it?", t.title)
         }
-        input.oldest?.takeIf { input.now - it.createdAt >= RESURFACE_AFTER_DAYS * DAY }?.let { e ->
+        if (Nudge.Kind.RESURFACE in input.enabled) input.oldest?.takeIf { input.now - it.createdAt >= RESURFACE_AFTER_DAYS * DAY }?.let { e ->
             return Nudge(Nudge.Kind.RESURFACE, "${ago(input.now - e.createdAt)} you said \"${e.title}\". Still true?", e.topic ?: e.title)
         }
-        if (input.sessionsToday == 0) return Nudge(Nudge.Kind.DAILY_CAPTURE, "Anything worth keeping from today?", null)
+        if (Nudge.Kind.DAILY_CAPTURE in input.enabled && input.sessionsToday == 0) return Nudge(Nudge.Kind.DAILY_CAPTURE, "Anything worth keeping from today?", null)
         return null
     }
 
@@ -58,4 +60,13 @@ object NudgeEngine {
 
     /** "Later": hide the card until the start of tomorrow. */
     fun snoozeUntil(startOfToday: Long) = startOfToday + DAY
+
+    /** Minutes after midnight inside quiet hours (which may wrap past midnight)? */
+    fun isQuiet(minute: Int, quietStart: Int, quietEnd: Int): Boolean =
+        if (quietStart == quietEnd) false
+        else if (quietStart < quietEnd) minute in quietStart until quietEnd
+        else minute >= quietStart || minute < quietEnd
+
+    /** The daily nudge time, moved to the end of quiet hours if it falls inside them. */
+    fun notifyAt(nudgeTime: Int, quietStart: Int, quietEnd: Int): Int = if (isQuiet(nudgeTime, quietStart, quietEnd)) quietEnd else nudgeTime
 }

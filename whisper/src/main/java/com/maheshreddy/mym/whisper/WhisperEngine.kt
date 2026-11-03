@@ -17,11 +17,12 @@ class WhisperEngine private constructor(private var ctx: Long) : Closeable {
      * Transcribes [samples]. [prompt] biases the decoder towards domain vocabulary
      * (for example "CATIA, NX, Teamcenter, PLM, jig, fixture").
      */
-    suspend fun transcribe(samples: FloatArray, prompt: String? = null, threads: Int = defaultThreads()): String =
+    /** [language] is "en" or "auto" (multilingual models only; English-only models always use English). */
+    suspend fun transcribe(samples: FloatArray, prompt: String? = null, threads: Int = defaultThreads(), language: String = "en"): String =
         withContext(Dispatchers.Default) {
             mutex.withLock {
                 check(ctx != 0L) { "WhisperEngine is closed" }
-                WhisperNative.transcribe(ctx, samples, threads, prompt)?.trim()
+                WhisperNative.transcribe(ctx, samples, threads, prompt, language)?.trim()
                     ?: throw IllegalStateException("whisper transcription failed")
             }
         }

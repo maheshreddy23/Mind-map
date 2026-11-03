@@ -15,6 +15,7 @@ import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
@@ -37,6 +38,7 @@ class SpeechInput @Inject constructor(
     private val recorder: AudioRecorder,
     private val engines: Engines,
     private val perf: PerfStats,
+    private val settings: com.maheshreddy.mym.data.settings.SettingsRepository,
 ) {
     private val _state = MutableStateFlow<ListenState>(ListenState.Idle)
     val state: StateFlow<ListenState> = _state.asStateFlow()
@@ -121,7 +123,13 @@ class SpeechInput @Inject constructor(
                     val engine = engines.whisper()
                     _state.value = ListenState.Transcribing
                     val t0 = System.nanoTime()
-                    val text = engine.transcribe(audio, prompt = DOMAIN_PROMPT)
+                    // Domain vocabulary (Settings → Speech recognition) biases whisper towards the user's jargon.
+                    val prefs = settings.settings.first()
+                    val text = engine.transcribe(
+                        audio,
+                        prompt = com.maheshreddy.mym.data.settings.SettingsRepository.whisperPrompt(prefs.vocabulary),
+                        language = if (prefs.multilingual) "auto" else "en",
+                    )
                     val audioSec = audio.size / 16_000.0
                     val procSec = (System.nanoTime() - t0) / 1e9
                     perf.recordStt(audioSec, procSec)
@@ -138,11 +146,6 @@ class SpeechInput @Inject constructor(
     }
 
     companion object {
-        /** Biases whisper towards the user's vocabulary. */
-        const val DOMAIN_PROMPT =
-            "Aerospace manufacturing engineering: jigs, fixtures, tooling, PLM, CATIA, NX, Teamcenter, BOM, GD&T, " +
-                "ECO, work instructions, datums, drilling templates, assembly jigs."
-
         /** RMS scaled so normal speech (~0.05-0.1 RMS) fills most of the range. */
         internal fun levelOf(chunk: FloatArray): Float {
             if (chunk.isEmpty()) return 0f

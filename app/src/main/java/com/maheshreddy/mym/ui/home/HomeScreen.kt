@@ -18,6 +18,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
+import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
@@ -93,6 +94,9 @@ fun HomeContent(
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     Text(state.greeting, style = Mind.type.label.copy(fontWeight = androidx.compose.ui.text.font.FontWeight.Normal), color = c.muted)
                     ScreenTitle("What shall we shelve today?")
+                }
+                androidx.compose.material3.IconButton(onClick = onOpenSettings, modifier = Modifier.testTag("openSettings")) {
+                    androidx.compose.material3.Icon(androidx.compose.material.icons.Icons.Outlined.Settings, contentDescription = "Settings", tint = c.ink)
                 }
                 Avatar(BUTLER_NAME.take(1).uppercase(), onClick = onOpenButler)
             }

@@ -10,6 +10,7 @@ import com.maheshreddy.mym.library.SessionFiler
 import com.maheshreddy.mym.core.llm.ContextManager
 import dagger.hilt.android.HiltAndroidApp
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
@@ -20,6 +21,8 @@ class MymApp : Application() {
     @Inject lateinit var sessions: SessionRepository
     @Inject @ApplicationScope lateinit var appScope: CoroutineScope
     @Inject lateinit var engines: Engines
+    @Inject lateinit var nudgeScheduler: com.maheshreddy.mym.nudges.NudgeScheduler
+    @Inject lateinit var settings: com.maheshreddy.mym.data.settings.SettingsRepository
 
     /** The LLM holds ~2-3 GB; give it back when the system is short of memory. */
     @Suppress("DEPRECATION")
@@ -43,6 +46,8 @@ class MymApp : Application() {
             }
             // Sessions opened but never used (no turns) are removed; they used to linger as "In progress".
             runCatching { sessions.deleteEmptySessions(System.currentTimeMillis() - 10 * 60 * 1000L) }
+            // Daily nudge notification at the chosen time (outside quiet hours).
+            runCatching { nudgeScheduler.schedule(settings.settings.first()) }
             // Finish filing that was interrupted (app killed after "wrap up").
             runCatching { filer.filePending() }
         }

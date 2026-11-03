@@ -19,6 +19,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Scaffold
+import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.SnackbarHost
@@ -84,12 +85,12 @@ class ButlerViewModel @Inject constructor(private val repo: ButlerRepository) : 
 }
 
 @Composable
-fun ButlerScreen(onBack: () -> Unit, vm: ButlerViewModel = hiltViewModel()) {
+fun ButlerScreen(onBack: () -> Unit, onOpenSettings: () -> Unit = {}, vm: ButlerViewModel = hiltViewModel()) {
     val state by vm.state.collectAsStateWithLifecycle()
     val message by vm.message.collectAsStateWithLifecycle()
     val snackbar = remember { SnackbarHostState() }
     LaunchedEffect(message) { message?.let { snackbar.showSnackbar(it); vm.clearMessage() } }
-    if (state.loaded) ButlerContent(state, snackbar, onBack, onSave = { vm.save(it) }, onClearJournal = { vm.clearJournal() })
+    if (state.loaded) ButlerContent(state, snackbar, onBack, onSave = { vm.save(it) }, onClearJournal = { vm.clearJournal() }, onOpenSettings = onOpenSettings)
 }
 
 /** design-spec §4 Butler: name, how it addresses you, personality sliders, interview style, journal. */
@@ -101,6 +102,7 @@ fun ButlerContent(
     onBack: () -> Unit,
     onSave: (ButlerProfile) -> Unit,
     onClearJournal: () -> Unit,
+    onOpenSettings: () -> Unit = {},
 ) {
     val c = Mind.colors
     val p0 = state.profile
@@ -117,7 +119,13 @@ fun ButlerContent(
     Scaffold(
         containerColor = c.ground,
         snackbarHost = { SnackbarHost(snackbar) },
-        topBar = { BackBar(onBack) },
+        topBar = {
+            BackBar(onBack) {
+                androidx.compose.material3.IconButton(onClick = onOpenSettings) {
+                    androidx.compose.material3.Icon(androidx.compose.material.icons.Icons.Outlined.Settings, contentDescription = "Settings", tint = c.ink)
+                }
+            }
+        },
         bottomBar = {
             Box(Modifier.fillMaxWidth().background(c.ground).navigationBarsPadding().padding(horizontal = MindDimens.screenPadding, vertical = 12.dp)) {
                 Pill("Save personality", { onSave(draft) }, Modifier.fillMaxWidth().testTag("saveButler"), style = PillStyle.INK, height = 48.dp)
@@ -130,8 +138,9 @@ fun ButlerContent(
         ) {
             Row(horizontalArrangement = Arrangement.spacedBy(14.dp), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
                 Avatar(draft.initial, onClick = null, size = 64.dp)
-                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                    Text("Your butler", style = Mind.type.screenTitle.copy(fontSize = Mind.type.screenTitle.fontSize.times(26f / 30f)), color = c.ink)
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    // The butler's own name, never a generic "Your butler".
+                    Text(draft.displayName, style = Mind.type.screenTitle.copy(fontSize = Mind.type.screenTitle.fontSize.times(26f / 30f)), color = c.ink, modifier = Modifier.testTag("butlerName"))
                     Caption(ButlerPrompt.summary(draft))
                 }
             }
@@ -162,7 +171,8 @@ fun ButlerContent(
                         }
                     }
                 }
-                Caption(style.hint)
+                // Full description, wrapping as needed (was cut off).
+                Text(style.hint, style = Mind.type.caption, color = c.muted, softWrap = true, modifier = Modifier.fillMaxWidth())
             }
             Field("Character notes (optional)", quirks, { quirks = it }, Modifier.fillMaxWidth(), placeholder = "e.g. quotes old engineering proverbs, never says \"awesome\"", singleLine = false)
             MindCard(padding = androidx.compose.foundation.layout.PaddingValues(14.dp)) {

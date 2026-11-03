@@ -84,14 +84,22 @@ class ConversationController @Inject constructor(
                 }
                 QuestionPolicy.Decision.Listen -> false
                 QuestionPolicy.Decision.Ask -> {
-                    askQuestion(sessionId, prefs.maxReplyWords, prefs.voice == "piper", prefs.speechRate, speech)
+                    askQuestion(sessionId, prefs.maxReplyWords, prefs.voice == "piper", prefs.speechRate, speech, prefs.pitch, prefs.systemVoice)
                     false
                 }
             }
         }
     }
 
-    private suspend fun askQuestion(sessionId: Long, maxWords: Int, piper: Boolean, rate: Float, speech: SpeechInput?) {
+    private suspend fun askQuestion(
+        sessionId: Long,
+        maxWords: Int,
+        piper: Boolean,
+        rate: Float,
+        speech: SpeechInput?,
+        pitch: Float = 1f,
+        systemVoice: String = "",
+    ) {
         try {
             val health = device.state.value
             if (PerformancePolicy.shouldPauseLlm(health.thermalStatus)) {
@@ -127,7 +135,7 @@ class ConversationController @Inject constructor(
             try {
                 // Never let a TTS engine that fails to report completion block the session.
                 val budgetMs = 5_000L + (question.split(' ').size * 700f / rate.coerceAtLeast(0.5f)).toLong()
-                val synth = voices.synthesizer(preferPiper = piper)
+                val synth = voices.synthesizer(preferPiper = piper).also { it.configure(pitch, systemVoice) }
                 if (withTimeoutOrNull(budgetMs) { synth.speak(question, rate) } == null) synth.stop()
             } finally {
                 speech?.muted = false

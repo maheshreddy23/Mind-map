@@ -46,3 +46,22 @@ class NudgeTest {
         assertEquals("A year ago", NudgeEngine.ago(400 * day))
     }
 }
+
+class NudgeSettingsTest {
+    @org.junit.Test
+    fun typesCanBeSwitchedOff() {
+        val day = 24L * 60 * 60 * 1000
+        val input = NudgeInput(1000 * day, 1000 * day - 1, 0, listOf(NudgeTopic(1, "Datums", 1)), null, 0, enabled = setOf(Nudge.Kind.DAILY_CAPTURE))
+        org.junit.Assert.assertEquals(Nudge.Kind.DAILY_CAPTURE, NudgeEngine.pick(input)!!.kind)
+        org.junit.Assert.assertNull(NudgeEngine.pick(input.copy(enabled = emptySet())))
+    }
+
+    @org.junit.Test
+    fun quietHoursWrapPastMidnight() {
+        org.junit.Assert.assertTrue(NudgeEngine.isQuiet(23 * 60, 22 * 60, 7 * 60))
+        org.junit.Assert.assertTrue(NudgeEngine.isQuiet(3 * 60, 22 * 60, 7 * 60))
+        org.junit.Assert.assertFalse(NudgeEngine.isQuiet(19 * 60, 22 * 60, 7 * 60))
+        org.junit.Assert.assertEquals(7 * 60, NudgeEngine.notifyAt(6 * 60, 22 * 60, 7 * 60))
+        org.junit.Assert.assertEquals(19 * 60, NudgeEngine.notifyAt(19 * 60, 22 * 60, 7 * 60))
+    }
+}
