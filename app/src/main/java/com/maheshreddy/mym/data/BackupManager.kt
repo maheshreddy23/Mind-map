@@ -36,7 +36,7 @@ class BackupManager @Inject constructor(
     private val db: AppDatabase,
 ) {
     private val dbName = "mym.db"
-    private val prefsFiles = listOf("datastore/settings.preferences_pb", "datastore/butler.preferences_pb")
+    private val prefsFiles = listOf("datastore/settings.preferences_pb", "datastore/butler.preferences_pb", "datastore/map.preferences_pb")
 
     suspend fun export(uri: Uri, passphrase: CharArray) = withContext(Dispatchers.IO) {
         require(passphrase.size >= 6) { "Use a passphrase of at least 6 characters." }

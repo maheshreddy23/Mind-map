@@ -80,6 +80,9 @@ data class InboxUiState(
     val filed: List<FiledItem> = emptyList(),
     /** Sessions still open after 12 h idle. */
     val stale: List<StaleSession> = emptyList(),
+    /** Empty state: the last five filed entries (with Undo) and a few stats. */
+    val recentFiled: List<FiledItem> = emptyList(),
+    val stats: com.maheshreddy.mym.core.library.LibraryStats? = null,
 )
 
 data class StaleSession(val id: Long, val title: String)
@@ -117,6 +120,108 @@ fun InboxScreen(
     )
 }
 
+/** The "Change" dialog for an Inbox entry, pre-filled with the butler's proposal. */
+@Composable
+fun ChangeFilingDialog(
+    e: EntryEntity,
+    subjects: List<com.maheshreddy.mym.data.db.SubjectEntity>,
+    topics: List<com.maheshreddy.mym.data.db.TopicEntity>,
+    onConfirm: (FilingChoice) -> Unit,
+    onDismiss: () -> Unit,
+) = FileEntryDialog(
+    title = "File \"${e.title}\"",
+    subjects = subjects, topics = topics,
+    initialSubject = e.proposedSubjectPick(), initialTopic = e.proposedTopicPick(),
+    initialType = e.entryType(), initialPrivacy = e.entryPrivacy(),
+    onConfirm = onConfirm, onDismiss = onDismiss,
+)
+
+/** Wrap-up results in the session's bottom sheet: this session's needs-you cards, then what was auto-filed. */
+@Composable
+fun FilingResults(
+    state: InboxUiState,
+    onOpenEntry: (Long) -> Unit,
+    onOpenTopic: (EntryEntity) -> Unit,
+    onAccept: (EntryEntity) -> Unit,
+    onChange: (EntryEntity) -> Unit,
+    onDiscard: (EntryEntity) -> Unit,
+    onUndo: (EntryEntity) -> Unit,
+    onDone: () -> Unit,
+) {
+    val c = Mind.colors
+    LazyColumn(
+        Modifier.fillMaxWidth().testTag("filingResults"),
+        contentPadding = PaddingValues(start = MindDimens.screenPadding, end = MindDimens.screenPadding, bottom = 24.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp),
+    ) {
+        item {
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Caption("Session wrapped up")
+                Text(
+                    when {
+                        state.filing -> "Filing your session…"
+                        state.failed -> "Filing failed. I'll try again on next launch."
+                        else -> LibraryUi.filingHeadline(state.filedFromSession, state.waitingFromSession)
+                    },
+                    style = Mind.type.screenTitle.copy(fontSize = Mind.type.screenTitle.fontSize.times(24f / 30f)), color = c.ink,
+                )
+                if (state.filing) LinearProgressIndicator(Modifier.fillMaxWidth().padding(top = 6.dp), color = c.accent, trackColor = c.line)
+            }
+        }
+        state.confirmations.forEach { (id, text) -> item(key = "ok$id") { Text(text, style = Mind.type.button, color = c.accent) } }
+        if (state.needs.isNotEmpty()) item { SectionLabel("Needs you") }
+        itemsIndexed(state.needs, key = { _, it -> "n${it.entry.id}" }) { i, item ->
+            Appear(i) { NeedsYouCard(item, onOpenEntry, onAccept, onChange, onDiscard) }
+        }
+        if (state.filed.isNotEmpty()) {
+            item { SectionLabel("Filed automatically", Modifier.padding(top = 4.dp)) }
+            itemsIndexed(state.filed, key = { _, it -> "f${it.entry.id}" }) { i, f ->
+                Appear(state.needs.size + i) { FiledCard(f, onOpenEntry, onOpenTopic, onUndo) }
+            }
+        }
+        item { Row { Pill("Done", onDone, Modifier.testTag("closeResults"), style = PillStyle.INK, height = MindDimens.touch) } }
+    }
+}
+
+@Composable
+private fun FiledCard(f: FiledItem, onOpenEntry: (Long) -> Unit, onOpenTopic: (EntryEntity) -> Unit, onUndo: (EntryEntity) -> Unit) {
+    val c = Mind.colors
+    MindCard(onClick = { onOpenEntry(f.entry.id) }, padding = PaddingValues(start = 16.dp, end = 6.dp, top = 6.dp, bottom = 14.dp)) {
+        Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+            TypeChip(f.entry.entryType())
+            Spacer(Modifier.weight(1f))
+            if (f.undoable) Pill("Undo", { onUndo(f.entry) }, Modifier.testTag("undoFiling"), style = PillStyle.TEXT, height = MindDimens.touch)
+        }
+        Text(f.entry.title, style = Mind.type.body, color = c.ink)
+        if (f.breadcrumb.isNotBlank()) {
+            Text(
+                f.breadcrumb, style = Mind.type.label.copy(fontWeight = FontWeight.Normal), color = c.accent,
+                modifier = Modifier.padding(end = 8.dp).clickable { onOpenTopic(f.entry) },
+            )
+        }
+    }
+}
+
+@Composable
+private fun StatsRow(st: com.maheshreddy.mym.core.library.LibraryStats) {
+    val c = Mind.colors
+    Row(Modifier.fillMaxWidth().testTag("inboxStats"), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+        listOf(
+            st.entriesThisWeek to if (st.entriesThisWeek == 1) "entry this week" else "entries this week",
+            st.topics to if (st.topics == 1) "topic" else "topics",
+            st.streakDays to if (st.streakDays == 1) "day streak" else "day streak",
+        ).forEach { (n, label) ->
+            Column(
+                Modifier.weight(1f).background(c.surface, androidx.compose.foundation.shape.RoundedCornerShape(14.dp)).padding(12.dp),
+                verticalArrangement = Arrangement.spacedBy(2.dp),
+            ) {
+                Text("$n", style = Mind.type.cardTitle, color = c.ink)
+                Caption(label)
+            }
+        }
+    }
+}
+
 /** design-spec §4 Wrap-up and Inbox: "Needs you" cards first, then what was filed automatically (with Undo). */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -152,7 +257,7 @@ fun InboxContent(
                             state.sessionMode && state.filing -> "Filing your session…"
                             state.sessionMode && state.failed -> "Filing failed. I'll try again on next launch."
                             state.sessionMode -> LibraryUi.filingHeadline(state.filedFromSession, state.waitingFromSession)
-                            state.needs.isEmpty() -> "Nothing needs your call."
+                            state.needs.isEmpty() -> "Nothing needs your call"
                             state.needs.size == 1 -> "One entry needs your call."
                             else -> "${LibraryUi.word(state.needs.size).replaceFirstChar { it.uppercase() }} entries need your call."
                         },
@@ -178,24 +283,19 @@ fun InboxContent(
             itemsIndexed(state.needs, key = { _, it -> "n${it.entry.id}" }) { i, item ->
                 Appear(i) { NeedsYouCard(item, onOpenEntry, onAccept, onChange, onDiscard) }
             }
-            if (state.filed.isNotEmpty()) {
+            if (!state.sessionMode && state.needs.isEmpty() && state.stale.isEmpty()) {
+                state.stats?.let { st -> item { StatsRow(st) } }
+                if (state.recentFiled.isNotEmpty()) {
+                    item { SectionLabel("Last filed", Modifier.padding(top = 4.dp)) }
+                    itemsIndexed(state.recentFiled, key = { _, it -> "r${it.entry.id}" }) { i, f ->
+                        Appear(i) { FiledCard(f, onOpenEntry, onOpenTopic, onUndo) }
+                    }
+                }
+            } else if (state.filed.isNotEmpty()) {
                 item { SectionLabel(if (state.sessionMode) "Filed automatically" else "Filed today", Modifier.padding(top = 4.dp)) }
                 itemsIndexed(state.filed, key = { _, it -> "f${it.entry.id}" }) { i, f ->
                     Appear(state.needs.size + i) {
-                        MindCard(onClick = { onOpenEntry(f.entry.id) }, padding = PaddingValues(start = 16.dp, end = 6.dp, top = 6.dp, bottom = 14.dp)) {
-                            Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
-                                TypeChip(f.entry.entryType())
-                                Spacer(Modifier.weight(1f))
-                                if (f.undoable) Pill("Undo", { onUndo(f.entry) }, style = PillStyle.TEXT, height = MindDimens.touch)
-                            }
-                            Text(f.entry.title, style = Mind.type.body, color = c.ink)
-                            if (f.breadcrumb.isNotBlank()) {
-                                Text(
-                                    f.breadcrumb, style = Mind.type.label.copy(fontWeight = FontWeight.Normal), color = c.accent,
-                                    modifier = Modifier.padding(end = 8.dp).clickable { onOpenTopic(f.entry) },
-                                )
-                            }
-                        }
+                        FiledCard(f, onOpenEntry, onOpenTopic, onUndo)
                     }
                 }
             }
@@ -251,9 +351,9 @@ private fun NeedsYouCard(
         )
         if (e.reason.isNotBlank()) Caption(e.reason)
         FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            if (item.canAccept) Pill("File it there", { onAccept(e) }, Modifier.testTag("accept"))
+            if (item.canAccept) Pill("File", { onAccept(e) }, Modifier.testTag("accept"))
             Pill(if (item.canAccept) "Change" else "Choose", { onChange(e) }, style = if (item.canAccept) PillStyle.OUTLINE else PillStyle.ACCENT)
-            Box { Pill("Discard", { onDiscard(e) }, style = PillStyle.TEXT) }
+            Box { Pill("Discard", { onDiscard(e) }, Modifier.testTag("discard"), style = PillStyle.TEXT) }
         }
     }
 }

@@ -1,83 +1,75 @@
-# Fresher Notes
+# MYM – Map your Mind
 
-An offline Android app that turns what you know into organized notes. You explain your work out loud
-(jigs and fixtures, PLM, CATIA, NX, Teamcenter…). **Arjun**, an AI "fresher" who just joined your team,
-listens and asks one short follow-up question at a time. When you say **"wrap up"**, he writes topic-wise
-Markdown notes and merges them into your knowledge base.
+A private, on-device library of what you know, built by talking. A butler you name and shape (default **M**)
+listens, asks one sharp question at a time, files what you said into **Subject → Topic → Entry**, checks with you
+when unsure, nudges you to capture and revisit, and answers questions from your own entries with citations.
 
-Everything runs on the phone. The release build has no `INTERNET` permission.
+Everything runs on the phone. The network is used only to download models you choose (Full build); the
+**Sealed** build has no `INTERNET` permission at all and takes model files by import.
 
 | Function | Component | Licence |
 |---|---|---|
-| Speech-to-text | [whisper.cpp](https://github.com/ggml-org/whisper.cpp) v1.9.5 (submodule) | MIT |
+| Speech-to-text | [whisper.cpp](https://github.com/ggml-org/whisper.cpp) (submodule) | MIT |
 | Voice activity detection | Silero VAD via whisper.cpp; energy VAD fallback | MIT |
-| LLM | [llama.cpp](https://github.com/ggml-org/llama.cpp) b12021 (submodule) | MIT |
-| Text-to-speech | [sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx) v1.13.8 + Piper voice; Android TTS fallback | Apache-2.0 |
-| Search | SQLite FTS5 (bundled SQLite from `androidx.sqlite`) | Apache-2.0 / public domain |
-| App | Kotlin, Jetpack Compose, Room, Hilt, coroutines | Apache-2.0 |
+| LLM and embeddings | [llama.cpp](https://github.com/ggml-org/llama.cpp) (submodule) | MIT |
+| Text-to-speech | [sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx) + Piper voice; Android TTS fallback | Apache-2.0 |
+| Search | SQLite FTS5 + on-device sentence embeddings | Apache-2.0 / public domain |
+| App | Kotlin, Jetpack Compose, Room, Hilt, WorkManager, coroutines | Apache-2.0 |
 
 Target device: OnePlus 13R (Snapdragon 8 Gen 3, 12 GB RAM, Android 15). Minimum SDK 29, arm64-v8a only.
+Application id `com.maheshreddy.mym`.
 
-## 1. Download the models (on a computer or the phone)
+## 1. Models
 
-Models are not in the APK or in git. Download them once, put them anywhere on the phone (e.g. `Download/`),
-then pick them in **Settings → Models**. The app copies them into its private storage.
+Models are not in the APK or in git.
 
-| Slot | Recommended file | Size | Download |
-|---|---|---|---|
-| Speech-to-text * | `ggml-base.en.bin` (fast) or `ggml-small.en.bin` (more accurate) | 148 MB / 488 MB | https://huggingface.co/ggerganov/whisper.cpp/tree/main |
-| Voice activity detection | `ggml-silero-v5.1.2.bin` | 0.9 MB | https://huggingface.co/ggml-org/whisper-vad/tree/main |
-| Language model * | `qwen2.5-3b-instruct-q4_k_m.gguf` | 2.1 GB | https://huggingface.co/Qwen/Qwen2.5-3B-Instruct-GGUF/tree/main |
-| (alternative LLM) | `gemma-3-4b-it-Q4_K_M.gguf` | 2.5 GB | https://huggingface.co/ggml-org/gemma-3-4b-it-GGUF/tree/main |
-| (permissive LLM) | `Phi-4-mini-instruct-Q4_K_M.gguf` (MIT) or `qwen2.5-1.5b-instruct-q4_k_m.gguf` (Apache-2.0) | 2.5 GB / 1.1 GB | https://huggingface.co/Qwen/Qwen2.5-1.5B-Instruct-GGUF/tree/main |
-| Piper voice (folder) | `vits-piper-en_US-amy-low` (or any `vits-piper-en_*`) | ~65 MB | https://github.com/k2-fsa/sherpa-onnx/releases/tag/tts-models |
+**Full build (recommended):** on first launch the onboarding checks the phone (RAM, chip) and recommends a set
+that fits, with the total size. Tap Download: files come from Hugging Face over HTTPS at a pinned revision, Wi-Fi
+only unless you allow mobile data, with progress, pause and resume, and each file is checked against its official
+SHA-256 before it is used (a mismatch is deleted). **Settings → Models** has the full catalogue (speech, language
+models, embeddings, voices) with size, RAM, expected speed on your phone, quality tier, licence and a
+"Recommended for your phone" mark; you can switch, delete (never the only active one) and see storage used.
 
-\* required.
+Recommended on a 12 GB Snapdragon 8 Gen 3: Whisper small.en, Qwen3-4B-Instruct-2507 (Q4_K_M), BGE small en v1.5
+(embeddings, 37 MB), a Piper en_GB voice and Silero VAD. The exact files and hashes are in
+`core/src/main/kotlin/com/maheshreddy/mym/core/models/CatalogData.kt`.
 
-**Model licences.** The app's code and libraries are MIT/Apache-2.0, but model weights carry their own
-terms. The spec's default, Qwen2.5-**3B**-Instruct, is under the *Qwen Research License*, and Gemma under
-the *Gemma Terms of Use*. Neither is MIT/Apache, so check them before any non-personal use. For a fully
-permissive stack use Phi-4-mini-instruct (MIT) or Qwen2.5-1.5B-Instruct (Apache-2.0); the app detects
-their prompt formats automatically.
+**Sealed build, or offline:** download the same files on a computer from the Hugging Face links shown in the
+catalogue and import them in **Settings → Models → Import** (Storage Access Framework). The app copies them into
+private storage.
 
-Without a Silero model the app uses an energy-based VAD. Without a Piper voice it uses
-Android's built-in TextToSpeech (install an offline English voice in Android settings to keep it offline).
-
-The Piper voice is a **folder**: extract the `.tar.bz2` (for example with a file manager or on a computer)
-and pick the extracted `vits-piper-en_US-amy-low` folder. It must contain the `.onnx` model, `tokens.txt`
-and `espeak-ng-data/`.
-
-The prompt format is detected from the GGUF's chat template (ChatML for Qwen, Gemma's own format for
-Gemma, Llama 3 format for Llama).
+**Model licences.** The app is MIT/Apache-2.0, but weights carry their own terms; the catalogue shows each one.
+Qwen2.5-3B (Qwen Research), Llama 3.2, Gemma 3 and EmbeddingGemma are not open-source licences: they are listed
+with a label and never recommended. Piper voices use espeak-ng data (GPL-3.0).
 
 ## 2. Install
 
-Download `app-debug.apk` from the latest green **Android CI** run (Actions → run → Artifacts), or build it:
+Download the APKs from the latest green **Android CI** run (Actions → run → Artifacts → `mym-apks`): `app-full-*.apk` (downloads models) or `app-sealed-*.apk` (no internet, import only). Or build it:
 
 ```bash
 git clone --recursive https://github.com/maheshreddy23/Mind-map.git
 ```
 
 ```bash
-cd Mind-map && ./gradlew assembleRelease
+cd Mind-map && ./gradlew assembleFullRelease assembleSealedRelease
 ```
 
-The release APK is at `app/build/outputs/apk/release/app-release.apk`. It is signed with the debug key,
+The release APKs are in `app/build/outputs/apk/{full,sealed}/release/`. It is signed with the debug key,
 for personal sideloading. Install it with:
 
 ```bash
-adb install -r app/build/outputs/apk/release/app-release.apk
+adb install -r app/build/outputs/apk/full/release/app-full-release.apk
 ```
 
 Build requirements: JDK 17, Android SDK 35, NDK 27.2.12479018, CMake 3.22.1. The sherpa-onnx prebuilt
 libraries are downloaded once at build time (`:tts:fetchSherpaOnnx`).
 
 **Updates:** CI signs every APK with one fixed key held in the `DEBUG_KEYSTORE_B64` repository secret,
-so a new APK installs over the old one and keeps your models and notes. Without that secret each CI run
+so a new APK installs over the old one and keeps your models and library. (MYM has a new application id, so it installs next to the old Fresher Notes app rather than over it.) Without that secret each CI run
 uses a random key (CI shows a warning) and updating needs an uninstall. To set it up once:
 
 ```bash
-keytool -genkeypair -keystore debug.keystore -storetype PKCS12 -storepass android -keypass android -alias androiddebugkey -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Fresher Notes Debug"
+keytool -genkeypair -keystore debug.keystore -storetype PKCS12 -storepass android -keypass android -alias androiddebugkey -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=MYM Debug"
 ```
 
 ```bash
@@ -88,20 +80,20 @@ Keep `debug.keystore` somewhere safe; it is never committed (`*.keystore` is git
 
 ## 3. Use
 
-1. **Settings → Models**: pick the whisper model and the GGUF (plus the optional VAD and Piper voice).
-2. **Home → Start session.** Tap the mic, explain something, tap again. Arjun transcribes it, thinks,
-   and asks a question out loud. Or turn on **Continuous mode** in Settings and just talk: the VAD
-   detects when you pause. You can also type.
-3. Say **"let's wrap up"** (or tap **Wrap up**). Arjun stops asking and writes notes with these sections:
-   topic and sub-topics, key concepts, procedures or steps, reasons and rationale, pitfalls and lessons
-   learned, open questions to revisit.
-4. Notes are merged into the matching topic page (similar titles such as "Drill jig" and "Drill Jigs and
-   Fixtures" are treated as one topic). Each page is also written to `Documents/FresherNotes/<topic>.md`.
-5. **Home → search** finds topics and past sessions (FTS5, prefix matching). **Notes** pages can be edited
-   and re-exported.
-
-Settings also control voice, speech rate, maximum reply length, how often Arjun asks (every 1–5 of your
-turns), and include a **Benchmark the LLM** button plus live speech-to-text and LLM timings.
+1. **Onboarding** (first run): device check → recommended models and total size → download → name your butler,
+   choose its interview style and the areas you want to map → microphone → first session.
+2. **Talk** (centre button): speak, or type. In **Interview** mode the butler asks one probing question at a time;
+   in **Listen** mode it just captures. Tap the check (Wrap up, 5 s to undo) or say "wrap up".
+3. The filing sheet opens in the session: entries it was sure of are filed (with Undo); the rest need your call
+   (File / Change / Discard). Uncertain ones wait in the **Inbox** (icon with a badge on Home).
+4. **Library**: shelves per subject with progress, gaps worth filling, FTS5 search, privacy filter.
+5. **Ask**: questions answered only from your entries, found by meaning and keywords, with numbered citations
+   that open the entry; optional spoken answers; privacy filter. Nothing relevant → "Start an interview on this".
+6. **Map**: subjects as clusters, topics sized by entries, suggested links (dashed) you can confirm, gaps ringed
+   in amber; pinch-zoom, filters, Growth animation.
+7. **Settings** (avatar menu on Home): models, speech recognition (language, domain vocabulary, mic test), voice,
+   butler, nudges (types, time, quiet hours), privacy (default Private, app lock), storage, encrypted backup,
+   performance benchmark, about and licences.
 
 ## How it works
 
@@ -111,22 +103,23 @@ turns), and include a **Benchmark the LLM** button plus live speech-to-text and 
   the context window (4096 tokens), older turns are summarized into a running summary.
 - llama.cpp keeps the KV cache between turns and only decodes the new part of the prompt, which keeps
   time-to-first-token low.
-- The mic is muted while Arjun speaks, so he does not transcribe himself.
+- The mic is muted while the butler speaks, so it does not transcribe itself.
+- Every entry is embedded in the background (incrementally after each filing; large backlogs only while charging) for Ask and the Map.
 - Under thermal pressure or battery saver the app uses fewer CPU threads and switches to push-to-talk.
   At critical temperature the LLM pauses; transcription and saving continue.
 
 ## Development
 
 ```text
-core/     pure Kotlin: VAD endpointing, WAV, prompts, context management, notes parsing/merging (JVM tests)
+core/     pure Kotlin: VAD endpointing, prompts, filing, retrieval, map layout, catalogue, nudges (JVM tests)
 whisper/  whisper.cpp JNI + Silero VAD
 llama/    llama.cpp JNI (streaming, prefix KV cache)
 tts/      sherpa-onnx Piper + Android TTS fallback
-app/      Compose UI, Room, Hilt, conversation loop, notes, search, export
+app/      Compose UI, Room, Hilt, conversation loop, filing, search, embeddings, Map, model manager
 ```
 
 ```bash
-./gradlew assembleDebug testDebugUnitTest :core:test
+./gradlew assembleFullDebug assembleSealedDebug testFullDebugUnitTest :core:test
 ```
 
 Instrumented tests need the stand-in models (whisper tiny.en, Silero, Qwen2.5-0.5B, a Piper voice) on a

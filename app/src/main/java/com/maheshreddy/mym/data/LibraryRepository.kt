@@ -74,6 +74,8 @@ class LibraryRepository @Inject constructor(
     fun observeOldestFiled(): Flow<EntryEntity?> = entries.observeOldestFiled()
     fun observeTopicCounts(): Flow<List<com.maheshreddy.mym.data.db.TopicEntryCount>> = entries.observeTopicCounts()
     fun observeInboxCount(): Flow<Int> = entries.observeInboxCount()
+    fun observeRecentFiled(n: Int = 5): Flow<List<EntryEntity>> = entries.observeRecentFiled(n)
+    fun observeCreatedTimes(): Flow<List<Long>> = entries.observeCreatedTimes()
     fun observeSessionEntries(sessionId: Long): Flow<List<EntryEntity>> = entries.observeForSession(sessionId)
     fun observeFiledToday(now: Long = System.currentTimeMillis()): Flow<List<EntryEntity>> = entries.observeAutoFiledSince(startOfDay(now))
 

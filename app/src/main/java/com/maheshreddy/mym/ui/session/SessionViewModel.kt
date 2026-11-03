@@ -136,6 +136,8 @@ class SessionViewModel @Inject constructor(
 
     fun dismissError() = conversation.clearError()
 
+    fun rename(title: String) = viewModelScope.launch { sessions.rename(sessionId, title) }
+
     private suspend fun finish() {
         speech.stop()
         _resumePrompt.value = false

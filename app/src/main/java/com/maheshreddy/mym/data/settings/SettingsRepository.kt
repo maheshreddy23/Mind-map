@@ -40,6 +40,8 @@ data class AppSettings(
     val multilingual: Boolean = false,
     /** Words passed to whisper as its initial prompt so jargon is spelled right. */
     val vocabulary: List<String> = DEFAULT_VOCABULARY,
+    /** Areas the user wants to map (onboarding); shown as empty clusters on the Map until real subjects exist. */
+    val starterSubjects: List<String> = DEFAULT_STARTERS,
     /** Download models on Wi-Fi only. */
     val wifiOnly: Boolean = true,
     /** Nudges. */
@@ -57,6 +59,8 @@ data class AppSettings(
     val onboarded: Boolean = false,
 ) {
     companion object {
+        /** requirements-v2 §5 examples of subjects. Suggestions only: real subjects are always confirmed first. */
+        val DEFAULT_STARTERS = listOf("Jigs and Fixtures", "PLM", "Project Management", "Personal Finance", "Life")
         val DEFAULT_VOCABULARY = listOf("PLM", "CCPM", "RFP", "Teamcenter", "NX", "CATIA", "jig", "fixture", "datum", "BOM", "ECO")
     }
 }
@@ -84,6 +88,7 @@ class SettingsRepository @Inject constructor(@ApplicationContext private val con
         val quietEnd = intPreferencesKey("quiet_end")
         val appLock = booleanPreferencesKey("app_lock")
         val onboarded = booleanPreferencesKey("onboarded")
+        val starters = stringPreferencesKey("starter_subjects")
     }
 
     val settings: Flow<AppSettings> = context.dataStore.data.map { it.toSettings() }
@@ -111,6 +116,7 @@ class SettingsRepository @Inject constructor(@ApplicationContext private val con
             quietEndMin = this[Keys.quietEnd] ?: d.quietEndMin,
             appLock = this[Keys.appLock] ?: d.appLock,
             onboarded = this[Keys.onboarded] ?: d.onboarded,
+            starterSubjects = this[Keys.starters]?.split('\n')?.map { it.trim() }?.filter { it.isNotEmpty() } ?: d.starterSubjects,
         )
     }
 
@@ -129,6 +135,7 @@ class SettingsRepository @Inject constructor(@ApplicationContext private val con
             prefs[Keys.multilingual] = next.multilingual
             prefs[Keys.vocabulary] = next.vocabulary.map { it.trim() }.filter { it.isNotEmpty() }.distinct().joinToString("\n")
             prefs[Keys.wifiOnly] = next.wifiOnly
+            prefs[Keys.starters] = next.starterSubjects.map { it.trim() }.filter { it.isNotEmpty() }.distinct().joinToString("\n")
             prefs[Keys.nudgeUnfinished] = next.nudgeUnfinished
             prefs[Keys.nudgeResurface] = next.nudgeResurface
             prefs[Keys.nudgeDaily] = next.nudgeDaily

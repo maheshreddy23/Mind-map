@@ -5,11 +5,11 @@
 | Phase | Scope | Status |
 |---|---|---|
 | 1 | Data model and filing: subjects, topics, entries, types, privacy, Inbox, delete and regenerate, no "General" | CI green; phone-tested |
-| 2 | Butler persona, onboarding, modes; in-app model downloader + Full/Sealed flavours | Partly done: persona profile, Butler screen, journal, Listen/Interview (pulled forward). Remaining: onboarding wizard, downloader, flavours |
-| 3 | Ask the library: embeddings, semantic search, cited answers | Partly done: Ask screen with cited answers over FTS5 keyword retrieval. Remaining: embedding model and semantic search |
-| 4 | Nudges | Partly done: Home nudge card (unfinished topic, spaced review, daily capture; Later = tomorrow). Remaining: notifications, WorkManager, settings |
-| 5 | Privacy: sensitivity guard, app lock, encryption, backup | Not started |
-| 6 | Design pass (pulled forward at the owner's request: existing screens now; Ask and Butler get built in this style when their phases land) | In review (CI) |
+| 2 | Butler persona, onboarding, modes; in-app model downloader + Full/Sealed flavours | Built (MYM change set, 3 Nov 2026); awaiting CI + phone test |
+| 3 | Ask the library: embeddings, semantic search, cited answers | Built (MYM change set); awaiting CI + phone test |
+| 4 | Nudges | Built: Home card + daily notification (WorkManager), per-type toggles, time, quiet hours |
+| 5 | Privacy: sensitivity guard, app lock, encryption, backup | Partly: app lock, default privacy, encrypted backup, privacy filters in Ask/Map. Not yet: sensitivity guard, at-rest DB encryption |
+| 6 | Design pass | Done; extended to the new screens |
 | 7 | Sharing | Not started |
 
 **v1 baseline on the OnePlus 13R (reported 1 Nov 2026):** whisper small.en at 0.48× real time; warm first LLM token 1848 ms at 12.4 tok/s; the transcript-latency fix confirmed working. First token is only ~150 ms under the 2 s target, so later phases must keep the persona/journal as a cached prompt prefix.
@@ -68,6 +68,29 @@ Built:
 - Bottom bar: Home · Library · [Talk] · Ask · Inbox.
 
 Limits: Ask matches words, not meaning, until the embedding model (phase 3). Nudges show only in the app; there are no notifications yet. The journal learns from your Inbox corrections only; the butler does not yet track "promises".
+
+### MYM change set (3 Nov 2026, one PR, owner's request)
+Renamed and rebuilt on a clean database (owner accepted losing test data):
+- **Rename:** app "MYM – Map your Mind", launcher "MYM", application id and Kotlin packages `com.maheshreddy.mym`, new launcher icon, DB `mym.db` at schema version 1 (v1/v2 migrations and their tests removed). Same signing key and CI signing. Because the id changed, MYM installs next to the old app; it does not carry the old data.
+- **Navigation:** bottom bar Home · Library · [Talk] · Ask · Map. Inbox is an icon with a badge at the top right of Home (full screen); the avatar menu holds Butler and Settings; Home shows "N entries need your call" and recent sessions with topic and a one-line summary.
+- **Settings:** Models, Speech recognition (language English/multilingual, editable domain vocabulary passed to whisper, mic test), Voice (engine, Android voice, speed, pitch, sample), Butler, Nudges (types, time, quiet hours), Privacy (default Private, biometric/PIN app lock), Storage (per model and library, clear cache), Backup (AES-256-GCM, PBKDF2 210k, to a file you choose), Performance (LLM benchmark, last timings), About (version, each installed model's licence).
+- **Model manager:** 32-model catalogue generated from the Hugging Face API at pinned revisions with official hashes (SHA-256 for LFS files, git blob SHA-1 for small files); device fit (RAM budget, expected speed from the phone baseline, quality tier, licence, "Recommended for your phone"); filter and sort; WorkManager downloads (foreground, Wi-Fi only by default, HTTP Range resume, pause, cancel), verified before activation; import kept; activate, switch, delete (never the only active model). **Full** and **Sealed** flavours; CI checks the Sealed release has no INTERNET permission.
+- **Onboarding:** Welcome → device check → recommended bundle with total size → download → butler name, "calls you", interview style and areas to map → microphone and notifications → first session. Runs once; an existing install sees current choices pre-filled.
+- **Ask, AI-powered:** every entry is embedded on the phone with llama.cpp (new `Embedder` JNI, L2-normalised, model's own pooling), in the background: up to 50 right after a filing, the rest only while charging; vectors are rebuilt when the text or the model changes. Retrieval fuses meaning (cosine) and FTS5 (bm25 order) with Reciprocal Rank Fusion; a per-model similarity bar decides "nothing relevant". The active LLM answers only from the numbered entries, with citation chips. Privacy chips filter what the model may see; spoken answers optional; suggested questions from your topics; empty library explains and offers a session.
+- **Map:** pure Compose Canvas. Subjects are clusters on a spiral pushed apart until none overlap; topics are sized by entry count; links come from shared terms (Jaccard) or close topic embeddings, at most 3 suggestions per topic, dashed until confirmed (confirm/dismiss stored in DataStore and included in backups). Gaps: topics with ≤ 1 entry or open questions, and empty subjects. Pinch-zoom/pan, privacy and time filters, Growth animation, preview card (Open topic / Continue by talking / Interview me on this). Empty library: the onboarding areas appear as "Start here" clusters.
+- **Session:** Send turns into Wrap up (check) when the field is empty; Wrap up waits 5 s with Undo; voice "wrap up" unchanged; top bar back, Listen/Interview, overflow (Rename, Delete). Filing results open as a bottom sheet (File / Change / Discard, Undo); closing goes Home.
+- **Empty states:** Inbox: "Nothing needs your call", stats (entries this week, topics, day streak) and the last 5 filed with Undo. Library: per-subject progress ("% solid") and up to 3 gap suggestions (your vocabulary not yet in any entry, open questions, thin topics).
+- **Bugs fixed:** sessions stuck "In progress" (Resume/Wrap up on reopen; sessions with no turns deleted at launch and on leaving; open over 12 h → Wrap up card in the Inbox); duplicate sessions in the same minute (cause: a double tap started two; now guarded and a still-empty session from the last 2 minutes is reused); a topic showing 0 entries (its entries were still waiting in the Inbox under that topic's name; tiles now say "· N in Inbox", and truly empty topics can be deleted from Library and the topic page); Butler heading shows the butler's name and the style description wraps.
+
+Tests added: core `CatalogTest`, `RetrievalTest` (fusion, privacy filter, no-match, keyword-only), `KnowledgeMapTest` (8), `StatsTest`, `GapsTest`, `NudgeSettingsTest`, `BackupCryptoTest`; instrumented `DownloaderTest` (real 885 KB download, resume, checksum mismatch), `AskTest` (BGE retrieval by meaning, "nothing relevant", privacy filter, citation chips, empty states), `ScreensTest` (Settings, onboarding, Send/Wrap up/Undo, Map), `SessionCleanupTest`, llama `EmbedderTest`; screenshots for every new screen in light and dark.
+
+Measured on the dev machine (llama.cpp host build, BGE small en v1.5 Q8): a paraphrased question scored 0.59 against its entry and unrelated questions 0.31–0.40, so BGE's "relevant" bar is 0.50. The bar for other embedding models (0.45) is not measured yet.
+
+Known limitations:
+- Map links are computed when the Map opens; with hundreds of topics the pairwise comparison may take a moment (runs off the main thread).
+- The Map canvas is not navigable by TalkBack beyond a summary; the Library holds the same information accessibly.
+- Expected speeds in the model manager are estimates scaled from the v1 phone baseline, not measurements.
+- The 0.45 similarity bar for non-BGE embedding models is a guess until measured.
 
 # v1
 

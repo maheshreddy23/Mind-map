@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -68,6 +69,8 @@ data class LibraryUiState(
     val unassigned: List<TopicTile> = emptyList(),
     /** Topics with no filed or proposed entries (left behind after moves, undo or rejects). */
     val emptyTopics: List<Pair<Long, String>> = emptyList(),
+    /** "No entries on ECO handling yet" style suggestions. */
+    val gaps: List<com.maheshreddy.mym.core.library.GapSuggestion> = emptyList(),
 )
 
 @Composable
@@ -77,6 +80,7 @@ fun LibraryScreen(
     onOpenEntry: (Long) -> Unit,
     onOpenSession: (Long) -> Unit,
     onTalk: () -> Unit,
+    onTalkAbout: (String) -> Unit = { onTalk() },
     vm: LibraryViewModel = hiltViewModel(),
 ) {
     val state by vm.state.collectAsStateWithLifecycle()
@@ -95,7 +99,7 @@ fun LibraryScreen(
                     }
                 },
                 onTalk = onTalk, onNewSubject = { creating = true },
-                onDeleteEmpty = vm::deleteEmptyTopics,
+                onDeleteEmpty = vm::deleteEmptyTopics, onTalkAbout = onTalkAbout,
             )
         }
     }
@@ -113,6 +117,7 @@ fun LibraryContent(
     onTalk: () -> Unit,
     onNewSubject: () -> Unit,
     onDeleteEmpty: (List<Long>) -> Unit = {},
+    onTalkAbout: (String) -> Unit = {},
 ) {
     val c = Mind.colors
     LazyColumn(
@@ -145,6 +150,17 @@ fun LibraryContent(
             return@LazyColumn
         }
         item { PrivacyFilter(state.filter, onFilter) }
+        if (state.gaps.isNotEmpty() && state.filter == null) item {
+            com.maheshreddy.mym.ui.components.MindCard(modifier = Modifier.testTag("gaps")) {
+                Caption("Gaps worth filling")
+                state.gaps.forEach { g ->
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(g.text, style = Mind.type.body, color = c.ink, modifier = Modifier.weight(1f))
+                        Pill("Talk", { onTalkAbout(g.talkAbout) }, style = PillStyle.TEXT, height = MindDimens.touch)
+                    }
+                }
+            }
+        }
         if (state.emptyTopics.isNotEmpty() && state.filter == null) item {
             com.maheshreddy.mym.ui.components.MindCard(background = c.amberSoft, border = null, modifier = Modifier.testTag("emptyTopics")) {
                 Text(
@@ -217,7 +233,17 @@ private fun ShelfSection(title: String, topics: List<TopicTile>, onHeader: (() -
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Text(title, style = Mind.type.label.copy(fontSize = Mind.type.body.fontSize.times(16f / 15f)), color = c.ink, modifier = Modifier.weight(1f))
-            if (topics.isNotEmpty()) Caption(LibraryUi.plural(topics.size, "topic", "topics"))
+            if (topics.isNotEmpty()) Caption(LibraryUi.plural(topics.size, "topic", "topics") + " · " + LibraryUi.plural(topics.sumOf { it.entries }, "entry", "entries"))
+        }
+        if (topics.isNotEmpty()) {
+            // Progress: the share of this shelf's topics that are solid (more than one entry, nothing left open).
+            val p = com.maheshreddy.mym.core.library.Gaps.progress(topics.map { it.entries to it.openQuestions })
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                androidx.compose.material3.LinearProgressIndicator(
+                    { p }, Modifier.weight(1f).height(4.dp).testTag("shelfProgress"), color = c.accent, trackColor = c.line,
+                )
+                Caption("${(p * 100).toInt()}% solid")
+            }
         }
         if (topics.isEmpty()) {
             DashedCard("Empty shelf. Teach $BUTLER_NAME about $title?", "Talk", emptyAction)

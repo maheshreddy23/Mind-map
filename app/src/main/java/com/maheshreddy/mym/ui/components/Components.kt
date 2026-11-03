@@ -26,7 +26,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.outlined.Home
-import androidx.compose.material.icons.outlined.Inbox
+import androidx.compose.material.icons.outlined.Hub
 import androidx.compose.material.icons.outlined.LibraryBooks
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.filled.Mic
@@ -60,11 +60,11 @@ import com.maheshreddy.mym.core.library.Privacy
 
 // ---- Bottom bar (§3) ----
 
-enum class Tab { HOME, LIBRARY, ASK, INBOX }
+enum class Tab { HOME, LIBRARY, ASK, MAP }
 
-/** Home · Library · [Talk] · Ask · Inbox (design-spec §3). */
+/** Home · Library · [Talk] · Ask · Map (design-spec §3). The Inbox lives behind an icon on Home. */
 @Composable
-fun MindBottomBar(selected: Tab?, inboxCount: Int, onTab: (Tab) -> Unit, onTalk: () -> Unit) {
+fun MindBottomBar(selected: Tab?, onTab: (Tab) -> Unit, onTalk: () -> Unit) {
     val c = Mind.colors
     Box(Modifier.fillMaxWidth()) {
         Row(
@@ -73,7 +73,7 @@ fun MindBottomBar(selected: Tab?, inboxCount: Int, onTab: (Tab) -> Unit, onTalk:
             }.navigationBarsPadding().padding(top = 8.dp, bottom = 10.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            // Five equal slots: Home, Library, (Talk), Ask, Inbox.
+            // Five equal slots: Home, Library, (Talk), Ask, Map.
             Box(Modifier.weight(1f), contentAlignment = Alignment.Center) { NavItem("Home", Icons.Outlined.Home, selected == Tab.HOME) { onTab(Tab.HOME) } }
             Box(Modifier.weight(1f), contentAlignment = Alignment.Center) { NavItem("Library", Icons.Outlined.LibraryBooks, selected == Tab.LIBRARY) { onTab(Tab.LIBRARY) } }
             Spacer(Modifier.weight(1f))
@@ -81,10 +81,7 @@ fun MindBottomBar(selected: Tab?, inboxCount: Int, onTab: (Tab) -> Unit, onTalk:
                 NavItem("Ask", Icons.Outlined.Search, selected == Tab.ASK, modifier = Modifier.testTag("nav-ask")) { onTab(Tab.ASK) }
             }
             Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
-                NavItem(
-                    "Inbox", Icons.Outlined.Inbox, selected == Tab.INBOX,
-                    badge = inboxCount.takeIf { it > 0 }, modifier = Modifier.testTag("nav-inbox"),
-                ) { onTab(Tab.INBOX) }
+                NavItem("Map", Icons.Outlined.Hub, selected == Tab.MAP, modifier = Modifier.testTag("nav-map")) { onTab(Tab.MAP) }
             }
         }
         // The Talk button sits over the middle of five slots, raised 28 dp above the bar.

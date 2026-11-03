@@ -20,10 +20,13 @@ class TalkViewModel @Inject constructor(
     private val sessions: SessionRepository,
     library: LibraryRepository,
     butler: com.maheshreddy.mym.data.ButlerRepository,
+    settings: com.maheshreddy.mym.data.settings.SettingsRepository,
 ) : ViewModel() {
+    /** Null until settings are read; false shows the first-run onboarding. */
+    val onboarded = settings.settings.map<com.maheshreddy.mym.data.settings.AppSettings, Boolean?> { it.onboarded }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, null)
     val butlerName = butler.profile.map { it.displayName }
         .stateIn(viewModelScope, SharingStarted.Eagerly, com.maheshreddy.mym.core.llm.ButlerProfile.DEFAULT_NAME)
-    val inboxCount = library.observeInboxCount().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), 0)
 
     /** Starts a session; [topic] titles it "Topic: …" when continuing a topic. */
     private val starting = java.util.concurrent.atomic.AtomicBoolean(false)

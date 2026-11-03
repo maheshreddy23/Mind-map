@@ -40,6 +40,8 @@ object Routes {
     const val HOME = "home"
     const val LIBRARY = "library"
     const val INBOX = "inbox"
+    const val MAP = "map"
+    const val ONBOARDING = "onboarding"
     const val ASK = "ask?q={q}"
     const val BUTLER = "butler"
     const val RESULTS = "results/{sessionId}"
@@ -57,12 +59,12 @@ object Routes {
     fun entry(id: Long) = "entry/$id"
     fun ask(question: String = "") = "ask?q=" + android.net.Uri.encode(question)
 
-    val tabs = mapOf(HOME to Tab.HOME, LIBRARY to Tab.LIBRARY, ASK to Tab.ASK, INBOX to Tab.INBOX)
+    val tabs = mapOf(HOME to Tab.HOME, LIBRARY to Tab.LIBRARY, ASK to Tab.ASK, MAP to Tab.MAP)
     fun tabPath(t: Tab) = when (t) {
         Tab.HOME -> HOME
         Tab.LIBRARY -> LIBRARY
         Tab.ASK -> ask()
-        Tab.INBOX -> INBOX
+        Tab.MAP -> MAP
     }
 }
 
@@ -94,12 +96,18 @@ fun AppNavHost(pendingTalk: kotlinx.coroutines.flow.MutableStateFlow<String?>? =
     val openSubject: (Long) -> Unit = { nav.navigate(Routes.subject(it)) }
     val openTopic: (Long) -> Unit = { nav.navigate(Routes.topic(it)) }
     val openEntry: (Long) -> Unit = { nav.navigate(Routes.entry(it)) }
-    val openInbox: () -> Unit = { nav.selectTab(Routes.INBOX) }
+    val openInbox: () -> Unit = { nav.navigate(Routes.INBOX) }
     val onTalk: () -> Unit = { talk.start(openSession) }
     val current by nav.currentBackStackEntryAsState()
     val tab = Routes.tabs[current?.destination?.route]
-    val inboxCount by talk.inboxCount.collectAsStateWithLifecycle()
     val butlerName by talk.butlerName.collectAsStateWithLifecycle()
+    val onboarded by talk.onboarded.collectAsStateWithLifecycle()
+    // The start destination is chosen once, when settings are first read.
+    val start = androidx.compose.runtime.remember(onboarded == null) { if (onboarded == false) Routes.ONBOARDING else Routes.HOME }
+    if (onboarded == null) {
+        Box(Modifier.fillMaxSize().then(androidx.compose.ui.Modifier))
+        return
+    }
     // "Talk now" from a nudge notification.
     val requestedTalk = pendingTalk?.collectAsStateWithLifecycle()?.value
     androidx.compose.runtime.LaunchedEffect(requestedTalk) {
@@ -113,9 +121,17 @@ fun AppNavHost(pendingTalk: kotlinx.coroutines.flow.MutableStateFlow<String?>? =
     Column(Modifier.fillMaxSize()) {
         Box(Modifier.weight(1f)) {
             NavHost(
-                navController = nav, startDestination = Routes.HOME,
+                navController = nav, startDestination = start,
                 enterTransition = push, exitTransition = pushExit, popEnterTransition = pop, popExitTransition = popExit,
             ) {
+                composable(Routes.ONBOARDING) {
+                    val home = { nav.navigate(Routes.HOME) { popUpTo(Routes.ONBOARDING) { inclusive = true } } }
+                    com.maheshreddy.mym.ui.onboarding.OnboardingScreen(
+                        onDone = home,
+                        onStartSession = { home(); talk.start(openSession) },
+                        onOpenModels = { nav.navigate(Routes.models()) },
+                    )
+                }
                 composable(Routes.HOME) {
                     HomeScreen(
                         onOpenSession = openSession, onOpenTopic = openTopic, onOpenSubject = openSubject,
@@ -133,18 +149,26 @@ fun AppNavHost(pendingTalk: kotlinx.coroutines.flow.MutableStateFlow<String?>? =
                 }
                 composable(Routes.BUTLER) { com.maheshreddy.mym.ui.butler.ButlerScreen(onBack = back, onOpenSettings = { nav.navigate(Routes.SETTINGS) }) }
                 composable(Routes.LIBRARY) {
-                    LibraryScreen(onOpenSubject = openSubject, onOpenTopic = openTopic, onOpenEntry = openEntry, onOpenSession = openSession, onTalk = onTalk)
+                    LibraryScreen(
+                        onOpenSubject = openSubject, onOpenTopic = openTopic, onOpenEntry = openEntry, onOpenSession = openSession, onTalk = onTalk,
+                        onTalkAbout = { t -> talk.start(openSession, topic = t) },
+                    )
                 }
-                composable(Routes.INBOX) { InboxScreen(onBack = null, onOpenEntry = openEntry, onOpenTopic = openTopic, onOpenSession = openSession) }
+                composable(Routes.INBOX) { InboxScreen(onBack = back, onOpenEntry = openEntry, onOpenTopic = openTopic, onOpenSession = openSession) }
+                composable(Routes.MAP) {
+                    com.maheshreddy.mym.ui.map.MapScreen(
+                        onOpenTopic = openTopic,
+                        onTalkAbout = { topic -> talk.start(openSession, topic = topic) },
+                    )
+                }
                 composable(Routes.RESULTS, arguments = listOf(navArgument("sessionId") { type = NavType.LongType })) {
                     InboxScreen(onBack = back, onOpenEntry = openEntry, onOpenTopic = openTopic)
                 }
                 composable(Routes.SESSION, arguments = listOf(navArgument("sessionId") { type = NavType.LongType })) {
                     SessionScreen(
                         onBack = back,
-                        onOpenResults = { id ->
-                            nav.navigate(Routes.results(id)) { popUpTo(Routes.SESSION) { inclusive = true } }
-                        },
+                        onHome = { if (!nav.popBackStack(Routes.HOME, inclusive = false)) nav.navigate(Routes.HOME) },
+                        onOpenEntry = openEntry, onOpenTopic = openTopic,
                     )
                 }
                 composable(Routes.SUBJECT, arguments = listOf(navArgument("subjectId") { type = NavType.LongType })) {
@@ -174,7 +198,7 @@ fun AppNavHost(pendingTalk: kotlinx.coroutines.flow.MutableStateFlow<String?>? =
         }
         if (tab != null) {
             MindBottomBar(
-                selected = tab, inboxCount = inboxCount,
+                selected = tab,
                 onTab = { t -> nav.selectTab(Routes.tabPath(t)) },
                 onTalk = onTalk,
             )

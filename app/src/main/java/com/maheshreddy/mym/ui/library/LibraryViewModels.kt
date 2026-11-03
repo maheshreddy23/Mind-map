@@ -76,10 +76,12 @@ class InboxViewModel @Inject constructor(
 
     private val names = combine(subjects, allTopics) { s, t -> s to t }
 
+    private val emptyState = combine(library.observeRecentFiled(5), library.observeCreatedTimes()) { a, b -> a to b }
+
     val state = combine(
         combine(library.observeInbox(), library.observeFiledToday(), sessionEntries) { a, b, c -> Triple(a, b, c) },
-        sessionStatus, names, justFiled,
-    ) { (inbox, today, mine), session, (subjects, topics), confirmed ->
+        sessionStatus, names, justFiled, emptyState,
+    ) { (inbox, today, mine), session, (subjects, topics), confirmed, (recent, created) ->
         fun subjectName(id: Long?) = subjects.firstOrNull { it.id == id }?.title
         fun topic(id: Long?) = topics.firstOrNull { it.id == id }
         val ordered = if (sessionId != null) inbox.sortedBy { if (it.sessionId == sessionId) 0 else 1 } else inbox
@@ -103,6 +105,11 @@ class InboxViewModel @Inject constructor(
             filedFromSession = mine.count { it.status == "FILED" },
             waitingFromSession = mine.count { it.status == "INBOX" },
             needs = needs, confirmations = confirmed, filed = filedList,
+            recentFiled = recent.map { e ->
+                val t = topic(e.topicId)
+                FiledItem(e, listOfNotNull(subjectName(t?.subjectId), t?.title).joinToString(" › "), undoable = true)
+            },
+            stats = com.maheshreddy.mym.core.library.Stats.of(created, topics.size, System.currentTimeMillis()),
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), InboxUiState())
 
@@ -151,6 +158,7 @@ class InboxViewModel @Inject constructor(
 class LibraryViewModel @Inject constructor(
     library: LibraryRepository,
     private val index: SearchIndex,
+    settings: com.maheshreddy.mym.data.settings.SettingsRepository,
 ) : LibraryBaseViewModel(library) {
     private val query = MutableStateFlow("")
     private val filter = MutableStateFlow<Privacy?>(null)
@@ -178,7 +186,17 @@ class LibraryViewModel @Inject constructor(
         )
     }
 
-    val state = combine(data, query, results) { d, q, r -> d.copy(query = q, results = r) }
+    /** Gap suggestions: the user's own vocabulary not yet in any entry, open questions and thin topics. */
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    private val gaps = combine(base, settings.settings) { b, s -> b to s.vocabulary }.mapLatest { (b, vocab) ->
+        val tiles = LibraryUi.tiles(b.topics, b.subjects, b.counts)
+        com.maheshreddy.mym.core.library.Gaps.suggest(
+            vocab, library.allFiledEntries().map { it.title + " " + it.body },
+            tiles.sortedByDescending { it.entries }.map { Triple(it.title, it.entries, it.openQuestions) },
+        )
+    }
+
+    val state = combine(data, query, results, gaps) { d, q, r, g -> d.copy(query = q, results = r, gaps = g) }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), LibraryUiState())
 
     fun setQuery(q: String) { query.value = q }

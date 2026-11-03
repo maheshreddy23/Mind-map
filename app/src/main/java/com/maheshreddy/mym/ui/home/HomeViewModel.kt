@@ -50,13 +50,14 @@ class HomeViewModel @Inject constructor(
             shelves = subjects.map { s -> ShelfTile(s.id, s.title, topics.count { it.subjectId == s.id }) },
             recent = recent.map { s ->
                 SessionRow(
-                    s.id, s.title,
+                    s.id, s.topicHint?.takeIf { it.isNotBlank() } ?: s.title,
                     when {
                         s.endedAt == null -> "In progress"
                         s.notesStatus == "PENDING" -> "Filing…"
                         s.notesStatus == "FAILED" -> "Filing failed, retried on next launch"
                         else -> "Ended"
                     },
+                    summary = s.summary,
                 )
             },
         )

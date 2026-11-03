@@ -26,6 +26,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
+import androidx.compose.material.icons.outlined.Inbox
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -43,7 +48,8 @@ import com.maheshreddy.mym.ui.theme.Mind
 import com.maheshreddy.mym.ui.theme.MindDimens
 
 data class ShelfTile(val id: Long, val title: String, val topics: Int)
-data class SessionRow(val id: Long, val title: String, val status: String)
+/** [title] is the session's topic when known; [summary] is one line of what was filed. */
+data class SessionRow(val id: Long, val title: String, val status: String, val summary: String = "")
 
 data class HomeUiState(
     val greeting: String = "Good evening",
@@ -95,10 +101,8 @@ fun HomeContent(
                     Text(state.greeting, style = Mind.type.label.copy(fontWeight = androidx.compose.ui.text.font.FontWeight.Normal), color = c.muted)
                     ScreenTitle("What shall we shelve today?")
                 }
-                androidx.compose.material3.IconButton(onClick = onOpenSettings, modifier = Modifier.testTag("openSettings")) {
-                    androidx.compose.material3.Icon(androidx.compose.material.icons.Icons.Outlined.Settings, contentDescription = "Settings", tint = c.ink)
-                }
-                Avatar(BUTLER_NAME.take(1).uppercase(), onClick = onOpenButler)
+                InboxButton(state.inboxCount, onOpenInbox)
+                ButlerMenu(onOpenButler, onOpenSettings)
             }
         }
         if (state.missingModels.isNotEmpty()) item {
@@ -131,7 +135,7 @@ fun HomeContent(
                     Text("${state.inboxCount}", style = Mind.type.chip, color = c.onAccent)
                 }
                 Text(
-                    if (state.inboxCount == 1) "Entry waiting for your call" else "${state.inboxCount} entries waiting for your call",
+                    if (state.inboxCount == 1) "1 entry needs your call" else "${state.inboxCount} entries need your call",
                     style = Mind.type.body, color = c.ink, modifier = Modifier.weight(1f),
                 )
                 Text("Review", style = Mind.type.button, color = c.accent)
@@ -186,11 +190,52 @@ fun HomeContent(
                         Modifier.fillMaxWidth().heightIn(min = MindDimens.touch).clip(RoundedCornerShape(10.dp))
                             .clickable(role = Role.Button) { onOpenSession(s.id) }.padding(vertical = 8.dp),
                     ) {
-                        Text(s.title, style = Mind.type.body, color = c.ink)
+                        Text(s.title, style = Mind.type.body, color = c.ink, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+                        if (s.summary.isNotBlank()) Text(s.summary, style = Mind.type.caption, color = c.muted, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
                         Caption(s.status)
                     }
                 }
             }
+        }
+    }
+}
+
+/** Inbox at the top right of Home, with a badge of waiting entries (none when zero). */
+@Composable
+fun InboxButton(count: Int, onClick: () -> Unit) {
+    val c = Mind.colors
+    Box(
+        Modifier.size(MindDimens.touch).clip(CircleShape).clickable(role = Role.Button, onClick = onClick)
+            .semantics { contentDescription = if (count > 0) "Inbox, $count waiting" else "Inbox" }.testTag("openInbox"),
+        contentAlignment = Alignment.Center,
+    ) {
+        androidx.compose.material3.Icon(androidx.compose.material.icons.Icons.Outlined.Inbox, contentDescription = null, tint = c.ink, modifier = Modifier.size(24.dp))
+        if (count > 0) {
+            Box(
+                Modifier.align(Alignment.TopEnd).padding(top = 6.dp, end = 4.dp).heightIn(min = 18.dp).widthIn(min = 18.dp)
+                    .clip(CircleShape).background(c.accent).padding(horizontal = 4.dp).testTag("inboxBadge"),
+                contentAlignment = Alignment.Center,
+            ) { Text(if (count > 99) "99+" else "$count", style = Mind.type.chip, color = c.onAccent) }
+        }
+    }
+}
+
+/** The butler's avatar: opens a small menu with the butler profile and Settings. */
+@Composable
+fun ButlerMenu(onOpenButler: () -> Unit, onOpenSettings: () -> Unit) {
+    val c = Mind.colors
+    var open by androidx.compose.runtime.saveable.rememberSaveable { androidx.compose.runtime.mutableStateOf(false) }
+    Box {
+        Avatar(BUTLER_NAME.take(1).uppercase(), onClick = { open = true }, modifier = Modifier.testTag("butlerAvatar"))
+        androidx.compose.material3.DropdownMenu(open, { open = false }, containerColor = c.surface) {
+            androidx.compose.material3.DropdownMenuItem(
+                text = { Text("$BUTLER_NAME, your butler", style = Mind.type.body, color = c.ink) },
+                onClick = { open = false; onOpenButler() }, modifier = Modifier.testTag("menuButler"),
+            )
+            androidx.compose.material3.DropdownMenuItem(
+                text = { Text("Settings", style = Mind.type.body, color = c.ink) },
+                onClick = { open = false; onOpenSettings() }, modifier = Modifier.testTag("openSettings"),
+            )
         }
     }
 }

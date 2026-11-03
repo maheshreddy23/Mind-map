@@ -74,7 +74,12 @@ class SessionFiler @Inject constructor(
                 .ifEmpty { listOf(fallback(session.title, raw, turns, privacy)) }
 
             library.file(sessionId, decisions)
-            sessions.setNotes(sessionId, NotesStatus.DONE)
+            // Home's recent sessions show the topic and a one-line summary (the entry titles).
+            sessions.setNotes(
+                sessionId, NotesStatus.DONE,
+                summary = decisions.joinToString("; ") { it.title }.take(140),
+                topic = decisions.firstNotNullOfOrNull { it.proposedTopic?.takeIf { t -> t.isNotBlank() } },
+            )
             index.upsert(DocKind.SESSION, sessionId, session.title, ContextManager.transcript(turns))
             Result.success(FilingSummary(decisions.count { it.status == EntryStatus.FILED }, decisions.count { it.status == EntryStatus.INBOX }))
         } catch (e: CancellationException) {

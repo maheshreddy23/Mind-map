@@ -12,6 +12,8 @@ import com.maheshreddy.mym.search.DocKind
 import com.maheshreddy.mym.search.SearchHit
 import com.maheshreddy.mym.session.FresherState
 import com.maheshreddy.mym.ui.components.MindBottomBar
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.fillMaxSize
 import com.maheshreddy.mym.ui.components.Tab
 import com.maheshreddy.mym.ui.home.HomeContent
 import com.maheshreddy.mym.ui.home.HomeUiState
@@ -70,7 +72,7 @@ class ScreenshotTest(private val dark: Boolean) {
             androidx.compose.foundation.layout.Box(androidx.compose.ui.Modifier.weight(1f)) {
                 HomeContent(Samples.home, {}, {}, {}, {}, {})
             }
-            MindBottomBar(Tab.HOME, inboxCount = 1, onTab = {}, onTalk = {})
+            MindBottomBar(Tab.HOME, onTab = {}, onTalk = {})
         }
     }
 
@@ -88,7 +90,7 @@ class ScreenshotTest(private val dark: Boolean) {
             androidx.compose.foundation.layout.Box(androidx.compose.ui.Modifier.weight(1f)) {
                 com.maheshreddy.mym.ui.ask.AskContent(Samples.ask, {}, {}, {}, {})
             }
-            MindBottomBar(Tab.ASK, inboxCount = 1, onTab = {}, onTalk = {})
+            MindBottomBar(Tab.ASK, onTab = {}, onTalk = {})
         }
     }
 
@@ -112,27 +114,109 @@ class ScreenshotTest(private val dark: Boolean) {
     }
 
     @Test
+    fun sessionWrapPending() = shot("session_wrap_pending") {
+        SessionContent(Samples.liveSession.copy(listen = ListenState.Idle, level = 0f, wrapPending = true), {}, {}, {}, {}, {}, {}, {}, {})
+    }
+
+    @Test
+    fun filingSheet() = shot("filing_sheet") {
+        androidx.compose.foundation.layout.Box(androidx.compose.ui.Modifier.fillMaxSize().background(com.maheshreddy.mym.ui.theme.Mind.colors.ground)) {
+            com.maheshreddy.mym.ui.library.FilingResults(Samples.wrapUp, {}, {}, {}, {}, {}, {}, {})
+        }
+    }
+
+    @Test
+    fun map() = shot("map") {
+        androidx.compose.foundation.layout.Column {
+            androidx.compose.foundation.layout.Box(androidx.compose.ui.Modifier.weight(1f)) {
+                com.maheshreddy.mym.ui.map.MapContent(Samples.map, com.maheshreddy.mym.ui.map.MapActions())
+            }
+            MindBottomBar(Tab.MAP, onTab = {}, onTalk = {})
+        }
+    }
+
+    @Test
+    fun mapPreview() = shot("map_preview") {
+        val m = Samples.map
+        com.maheshreddy.mym.ui.map.MapContent(m.copy(selected = com.maheshreddy.mym.core.map.MapHit.Topic(m.layout.nodes.first { it.id == 1L })), com.maheshreddy.mym.ui.map.MapActions())
+    }
+
+    @Test
+    fun mapEmpty() = shot("map_empty") {
+        com.maheshreddy.mym.ui.map.MapContent(
+            com.maheshreddy.mym.ui.map.MapUiState(
+                com.maheshreddy.mym.core.map.KnowledgeMap.build(emptyList(), emptyList(), emptyList(), starters = com.maheshreddy.mym.data.settings.AppSettings.DEFAULT_STARTERS),
+                loading = false,
+            ),
+            com.maheshreddy.mym.ui.map.MapActions(),
+        )
+    }
+
+    @Test
     fun wrapUp() = shot("wrapup") {
         InboxContent(Samples.wrapUp, remember { SnackbarHostState() }, onBack = {}, {}, {}, {}, {}, {}, {})
     }
 
     @Test
     fun inbox() = shot("inbox") {
-        androidx.compose.foundation.layout.Column {
-            androidx.compose.foundation.layout.Box(androidx.compose.ui.Modifier.weight(1f)) {
-                InboxContent(Samples.wrapUp.copy(sessionMode = false), remember { SnackbarHostState() }, onBack = null, {}, {}, {}, {}, {}, {})
-            }
-            MindBottomBar(Tab.INBOX, inboxCount = 1, onTab = {}, onTalk = {})
-        }
+        InboxContent(Samples.wrapUp.copy(sessionMode = false), remember { SnackbarHostState() }, onBack = {}, {}, {}, {}, {}, {}, {})
+    }
+
+    @Test
+    fun inboxEmpty() = shot("inbox_empty") {
+        InboxContent(
+            InboxUiState(
+                recentFiled = Samples.wrapUp.filed,
+                stats = com.maheshreddy.mym.core.library.LibraryStats(entriesThisWeek = 6, topics = 4, streakDays = 3),
+            ),
+            remember { SnackbarHostState() }, onBack = {}, {}, {}, {}, {}, {}, {},
+        )
+    }
+
+    @Test
+    fun askEmpty() = shot("ask_empty") {
+        com.maheshreddy.mym.ui.ask.AskContent(
+            com.maheshreddy.mym.ui.ask.AskUiState(suggestions = listOf("What is still open on RFP to project kickoff?", "What have I said about RFP to project kickoff?", "What have I said about Trade-offs?", "What lessons have I recorded about Project Management?")),
+            {}, {}, {}, {},
+        )
+    }
+
+    @Test
+    fun onboardingBundle() = shot("onboarding_bundle") {
+        val rec = com.maheshreddy.mym.core.models.DeviceFit.recommended(com.maheshreddy.mym.core.models.DeviceProfile.of(11_500, "SM8650", 8))
+        com.maheshreddy.mym.ui.onboarding.OnboardingContent(
+            com.maheshreddy.mym.ui.onboarding.OnboardingUiState(
+                step = com.maheshreddy.mym.ui.onboarding.OnboardingStep.BUNDLE,
+                bundle = rec.toSortedMap(compareBy { it.ordinal }).values.map { com.maheshreddy.mym.ui.onboarding.BundleItem(it, installed = false, download = null) },
+            ),
+            com.maheshreddy.mym.ui.onboarding.OnboardingActions(),
+        )
+    }
+
+    @Test
+    fun onboardingButler() = shot("onboarding_butler") {
+        com.maheshreddy.mym.ui.onboarding.OnboardingContent(
+            com.maheshreddy.mym.ui.onboarding.OnboardingUiState(
+                step = com.maheshreddy.mym.ui.onboarding.OnboardingStep.BUTLER, callsYou = "Mahesh",
+                areas = listOf("Jigs and Fixtures", "PLM"), areaChoices = com.maheshreddy.mym.data.settings.AppSettings.DEFAULT_STARTERS,
+            ),
+            com.maheshreddy.mym.ui.onboarding.OnboardingActions(),
+        )
     }
 
     @Test
     fun library() = shot("library") {
         androidx.compose.foundation.layout.Column {
             androidx.compose.foundation.layout.Box(androidx.compose.ui.Modifier.weight(1f)) {
-                LibraryContent(Samples.library, {}, {}, {}, {}, {}, {}, {})
+                LibraryContent(
+                    Samples.library.copy(gaps = listOf(
+                        com.maheshreddy.mym.core.library.GapSuggestion("No entries on ECO yet", "ECO"),
+                        com.maheshreddy.mym.core.library.GapSuggestion("RFP to project kickoff: an open question to settle", "RFP to project kickoff"),
+                    )),
+                    {}, {}, {}, {}, {}, {}, {},
+                )
             }
-            MindBottomBar(Tab.LIBRARY, inboxCount = 1, onTab = {}, onTalk = {})
+            MindBottomBar(Tab.LIBRARY, onTab = {}, onTalk = {})
         }
     }
 
@@ -168,7 +252,10 @@ private object Samples {
         inboxCount = 1,
         continueTopic = kickoff,
         shelves = listOf(ShelfTile(1, "Project Management", 2), ShelfTile(2, "PLM", 0), ShelfTile(3, "Jigs and Fixtures", 0)),
-        recent = listOf(SessionRow(7, "Session 1 Nov, 22:40", "Ended"), SessionRow(6, "Session 1 Nov, 18:28", "Ended")),
+        recent = listOf(
+            SessionRow(7, "RFP to project kickoff", "Ended", "From won bid to kickoff; Protect timeline and budget together"),
+            SessionRow(6, "Drill jigs", "Ended", "Worn bushes make holes drift"),
+        ),
     )
 
     val liveSession = SessionUiState(
@@ -230,6 +317,35 @@ private object Samples {
             com.maheshreddy.mym.ui.ask.Exchange(2, "What have I said about datum selection?", com.maheshreddy.mym.ui.ask.Reply.Nothing),
         ),
     )
+
+    val map = run {
+        fun e(t: Long, text: String, day: Int, type: com.maheshreddy.mym.core.library.EntryType = com.maheshreddy.mym.core.library.EntryType.KNOWLEDGE) =
+            com.maheshreddy.mym.core.map.MapEntryIn(t, T + day * 86_400_000L, Privacy.PRIVATE, type, text)
+        com.maheshreddy.mym.ui.map.MapUiState(
+            com.maheshreddy.mym.core.map.KnowledgeMap.build(
+                subjects = listOf(
+                    com.maheshreddy.mym.core.map.MapSubject(1, "Project Management"),
+                    com.maheshreddy.mym.core.map.MapSubject(2, "Jigs and Fixtures"),
+                    com.maheshreddy.mym.core.map.MapSubject(3, "PLM"),
+                ),
+                topics = listOf(
+                    com.maheshreddy.mym.core.map.MapTopicIn(1, 1, "RFP to project kickoff", "From a won bid to the kickoff meeting, and who owns which scope."),
+                    com.maheshreddy.mym.core.map.MapTopicIn(2, 1, "Trade-offs"),
+                    com.maheshreddy.mym.core.map.MapTopicIn(3, 2, "Drill jigs"),
+                    com.maheshreddy.mym.core.map.MapTopicIn(4, 2, "Datum selection"),
+                ),
+                entries = listOf(
+                    e(1, "won bid kickoff project number PLM teams scope", 1), e(1, "kickoff assigns teams scope CCPM", 2),
+                    e(1, "CCPM settles disputed task", 3, com.maheshreddy.mym.core.library.EntryType.OPEN_QUESTION),
+                    e(2, "protect timeline budget together customers scope", 4),
+                    e(3, "drill bushes guide holes datum faces", 5), e(3, "worn bushes holes drift", 6), e(3, "check bush wear batch", 7), e(3, "drill jig plates", 8),
+                    e(4, "datum faces locate holes drill", 9),
+                ),
+                confirmed = setOf(3L to 4L),
+            ),
+            loading = false,
+        )
+    }
 
     val hits = listOf(
         SearchHit(DocKind.TOPIC, 1, "RFP to project kickoff", "…the **kickoff** meeting assigns each team…"),

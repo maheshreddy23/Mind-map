@@ -63,3 +63,48 @@ class RetrievalTest {
         assertTrue(Retrieval.suggestions(emptyList(), emptyList()).isEmpty())
     }
 }
+
+class StatsTest {
+    private val zone = java.time.ZoneOffset.UTC
+    private val day = 86_400_000L
+    private val now = 20 * day + 3_600_000L
+
+    @Test
+    fun streakAndWeek() {
+        val created = listOf(now, now - day, now - 2 * day, now - 2 * day, now - 4 * day, now - 10 * day)
+        val s = Stats.of(created, topics = 3, now = now, zone = zone)
+        assertEquals(3, s.streakDays)
+        assertEquals(5, s.entriesThisWeek)
+        assertEquals(3, s.topics)
+    }
+
+    @Test
+    fun streakSurvivesUntilTodaysSession() {
+        assertEquals(2, Stats.of(listOf(now - day, now - 2 * day), 0, now, zone).streakDays)
+        assertEquals(0, Stats.of(listOf(now - 3 * day), 0, now, zone).streakDays)
+        assertEquals(0, Stats.of(emptyList(), 0, now, zone).entriesThisWeek)
+    }
+}
+
+class GapsTest {
+    @Test
+    fun suggestsMissingVocabularyOpenQuestionsAndThinTopics() {
+        val g = Gaps.suggest(
+            listOf("ECO", "datum", "jig", "BOM"),
+            listOf("Drill jigs use hardened bushes", "Pick the datum faces first"),
+            listOf(Triple("Drill jigs", 3, 1), Triple("Trade-offs", 1, 0)),
+            limit = 4,
+        )
+        assertEquals(
+            listOf("No entries on ECO yet", "Drill jigs: an open question to settle", "Only one entry on Trade-offs", "No entries on BOM yet"),
+            g.map { it.text },
+        )
+        assertEquals("ECO", g[0].talkAbout)
+    }
+
+    @Test
+    fun progressCountsSolidTopics() {
+        assertEquals(0.5f, Gaps.progress(listOf(3 to 0, 1 to 0)), 0f)
+        assertEquals(0f, Gaps.progress(emptyList()), 0f)
+    }
+}

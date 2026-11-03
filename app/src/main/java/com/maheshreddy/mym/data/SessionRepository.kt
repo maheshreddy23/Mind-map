@@ -73,9 +73,15 @@ class SessionRepository @Inject constructor(
         sessionDao.update(s.copy(endedAt = s.endedAt ?: System.currentTimeMillis(), notesStatus = NotesStatus.PENDING))
     }
 
-    suspend fun setNotes(sessionId: Long, status: String, summary: String? = null) {
+    suspend fun rename(sessionId: Long, title: String) {
         val s = sessionDao.get(sessionId) ?: return
-        sessionDao.update(s.copy(notesStatus = status, summary = summary ?: s.summary))
+        val t = title.trim().take(120)
+        if (t.isNotEmpty()) sessionDao.update(s.copy(title = t))
+    }
+
+    suspend fun setNotes(sessionId: Long, status: String, summary: String? = null, topic: String? = null) {
+        val s = sessionDao.get(sessionId) ?: return
+        sessionDao.update(s.copy(notesStatus = status, summary = summary ?: s.summary, topicHint = s.topicHint ?: topic))
     }
 
     suspend fun pendingNotes(): List<SessionEntity> = sessionDao.pendingNotes()

@@ -34,6 +34,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material3.CircularProgressIndicator
@@ -98,10 +99,18 @@ data class SessionUiState(
     val notesStatus: String,
     val filed: Int,
     val waiting: Int,
+    /** Wrap up was tapped: filing starts after a 5 s window in which it can be undone. */
+    val wrapPending: Boolean = false,
 )
 
 @Composable
-fun SessionScreen(onBack: () -> Unit, onOpenResults: (Long) -> Unit, vm: SessionViewModel = hiltViewModel()) {
+fun SessionScreen(
+    onBack: () -> Unit,
+    onHome: () -> Unit,
+    onOpenEntry: (Long) -> Unit = {},
+    onOpenTopic: (Long) -> Unit = {},
+    vm: SessionViewModel = hiltViewModel(),
+) {
     val session by vm.session.collectAsStateWithLifecycle()
     val turns by vm.turns.collectAsStateWithLifecycle()
     val timings by vm.timings.collectAsStateWithLifecycle()
@@ -116,11 +125,28 @@ fun SessionScreen(onBack: () -> Unit, onOpenResults: (Long) -> Unit, vm: Session
     val closed by vm.closed.collectAsStateWithLifecycle()
     LaunchedEffect(closed) { if (closed) onBack() }
     val ended = session?.endedAt != null
-    // Wrap-up (button or saying "wrap up") opens the results once, only for a session that was live on this screen.
+    // Wrap-up (button or saying "wrap up") opens the filing results as a sheet, once, for a session that was live here.
     var wasLive by rememberSaveable { mutableStateOf(false) }
+    var showResults by rememberSaveable { mutableStateOf(false) }
     LaunchedEffect(session?.id, ended) {
         val s = session ?: return@LaunchedEffect
-        if (s.endedAt == null) wasLive = true else if (wasLive) { wasLive = false; onOpenResults(vm.sessionId) }
+        if (s.endedAt == null) wasLive = true else if (wasLive) { wasLive = false; showResults = true }
+    }
+    // Tapping Wrap up waits 5 s (Undo) before filing starts.
+    var wrapPending by rememberSaveable { mutableStateOf(false) }
+    LaunchedEffect(wrapPending) {
+        if (wrapPending) {
+            kotlinx.coroutines.delay(WRAP_UNDO_MS)
+            wrapPending = false
+            vm.wrapUp()
+        }
+    }
+    if (showResults) {
+        FilingResultsSheet(onClose = { showResults = false; onHome() }, onOpenEntry = onOpenEntry, onOpenTopic = onOpenTopic)
+    }
+    var renaming by remember { mutableStateOf(false) }
+    if (renaming) {
+        RenameDialog(session?.title.orEmpty(), onConfirm = { vm.rename(it); renaming = false }, onDismiss = { renaming = false })
     }
 
     // Keep the screen on while a session is live so the system does not cut the microphone.
@@ -152,9 +178,10 @@ fun SessionScreen(onBack: () -> Unit, onOpenResults: (Long) -> Unit, vm: Session
             listen = listen, level = level, butler = butler, engines = engines, deviceWarning = warning,
             notesStatus = session?.notesStatus ?: "NONE",
             filed = entries.count { it.status == "FILED" }, waiting = entries.count { it.status == "INBOX" },
+            wrapPending = wrapPending,
         ),
         onBack = onBack,
-        onWrapUp = vm::wrapUp,
+        onWrapUp = { wrapPending = true },
         onMic = {
             if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) vm.toggleMic()
             else requestMic.launch(Manifest.permission.RECORD_AUDIO)
@@ -162,12 +189,16 @@ fun SessionScreen(onBack: () -> Unit, onOpenResults: (Long) -> Unit, vm: Session
         onSend = vm::submitText,
         onDismissError = vm::dismissError,
         onDelete = { confirmDelete = true },
-        onOpenResults = { onOpenResults(vm.sessionId) },
+        onOpenResults = { showResults = true },
         onRetry = vm::retryFiling,
         onMode = vm::setListenOnly,
         onResume = vm::resume,
+        onRename = { renaming = true },
+        onUndoWrap = { wrapPending = false },
     )
 }
+
+const val WRAP_UNDO_MS = 5_000L
 
 /** Focus mode (design-spec §4 Session): always dark; only the transcript, the butler's question and the mic. */
 @Composable
@@ -183,19 +214,19 @@ fun SessionContent(
     onRetry: () -> Unit,
     onMode: (Boolean) -> Unit = {},
     onResume: () -> Unit = {},
+    onRename: () -> Unit = {},
+    onUndoWrap: () -> Unit = {},
 ) {
     Column(Modifier.fillMaxSize().background(FocusColors.bg).imePadding()) {
         var menu by remember { mutableStateOf(false) }
+        // Top bar: back, Listen/Interview, overflow (rename, delete). Wrap up lives in the input row.
         BackBar(onBack, tint = FocusColors.text) {
-            if (!state.ended) {
-                ModeSwitch(state.listenOnly, onMode)
-                Spacer(Modifier.width(8.dp))
-                FocusPill("Wrap up", onWrapUp, Modifier.testTag("wrapUp"))
-            }
+            if (!state.ended) ModeSwitch(state.listenOnly, onMode)
             Box {
-                IconButton(onClick = { menu = true }) { Icon(Icons.Default.MoreVert, contentDescription = "More", tint = FocusColors.text) }
+                IconButton(onClick = { menu = true }, modifier = Modifier.testTag("sessionMenu")) { Icon(Icons.Default.MoreVert, contentDescription = "More", tint = FocusColors.text) }
                 DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
-                    DropdownMenuItem(text = { Text("Delete session") }, onClick = { menu = false; onDelete() })
+                    DropdownMenuItem(text = { Text("Rename") }, onClick = { menu = false; onRename() }, modifier = Modifier.testTag("renameSession"))
+                    DropdownMenuItem(text = { Text("Delete session") }, onClick = { menu = false; onDelete() }, modifier = Modifier.testTag("deleteSession"))
                 }
             }
         }
@@ -227,7 +258,8 @@ fun SessionContent(
             ButlerLine(state.butler, onDismissError)
             state.deviceWarning?.let { Text(it, style = Mind.type.caption, color = FocusColors.muted, modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp)) }
             MicArea(state.listen, state.level, onMic)
-            TypedInput(onSend)
+            if (state.wrapPending) WrapUndoBar(onUndoWrap)
+            TypedInput(onSend, onWrapUp, wrapPending = state.wrapPending)
         } else {
             FiledCard(state, onOpenResults, onRetry)
         }
@@ -412,8 +444,27 @@ private fun Waveform(level: Float) {
     }
 }
 
+/** "Wrapping up… Undo" for [WRAP_UNDO_MS] after Wrap up is tapped. */
 @Composable
-private fun TypedInput(onSend: (String) -> Unit) {
+private fun WrapUndoBar(onUndo: () -> Unit) {
+    Row(
+        Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp).clip(RoundedCornerShape(12.dp))
+            .background(FocusColors.text).padding(start = 16.dp).testTag("wrapSnackbar"),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text("Wrapping up…", style = Mind.type.body, color = FocusColors.bg, modifier = Modifier.weight(1f))
+        androidx.compose.material3.TextButton(onClick = onUndo, modifier = Modifier.testTag("undoWrap")) {
+            Text("Undo", style = Mind.type.button, color = FocusColors.accent)
+        }
+    }
+}
+
+/**
+ * Typed input. The action button is context-sensitive: Send while there is text, otherwise Wrap up (a check).
+ * Saying "wrap up" keeps working through the conversation loop.
+ */
+@Composable
+private fun TypedInput(onSend: (String) -> Unit, onWrapUp: () -> Unit, wrapPending: Boolean) {
     var text by rememberSaveable { mutableStateOf("") }
     Row(
         Modifier.fillMaxWidth().navigationBarsPadding().padding(horizontal = 16.dp, vertical = 8.dp)
@@ -427,9 +478,58 @@ private fun TypedInput(onSend: (String) -> Unit) {
                 cursorBrush = SolidColor(FocusColors.accent), modifier = Modifier.fillMaxWidth().testTag("typedInput"),
             )
         }
-        IconButton(onClick = { onSend(text); text = "" }, enabled = text.isNotBlank()) {
-            Icon(Icons.AutoMirrored.Filled.Send, contentDescription = "Send", tint = if (text.isNotBlank()) FocusColors.accent else FocusColors.line)
+        if (text.isNotBlank()) {
+            IconButton(onClick = { onSend(text); text = "" }, modifier = Modifier.testTag("send")) {
+                Icon(Icons.AutoMirrored.Filled.Send, contentDescription = "Send", tint = FocusColors.accent)
+            }
+        } else {
+            IconButton(onClick = onWrapUp, enabled = !wrapPending, modifier = Modifier.testTag("wrapUp")) {
+                Box(
+                    Modifier.size(34.dp).clip(androidx.compose.foundation.shape.CircleShape).background(if (wrapPending) FocusColors.line else FocusColors.accent),
+                    contentAlignment = Alignment.Center,
+                ) { Icon(Icons.Default.Check, contentDescription = "Wrap up", tint = FocusColors.bg, modifier = Modifier.size(20.dp)) }
+            }
         }
+    }
+}
+
+@Composable
+private fun RenameDialog(current: String, onConfirm: (String) -> Unit, onDismiss: () -> Unit) {
+    var name by rememberSaveable { mutableStateOf(current) }
+    androidx.compose.material3.AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Rename session") },
+        text = {
+            androidx.compose.material3.OutlinedTextField(name, { name = it }, singleLine = true, modifier = Modifier.testTag("renameField"))
+        },
+        confirmButton = { androidx.compose.material3.TextButton(onClick = { onConfirm(name) }, enabled = name.isNotBlank()) { Text("Rename") } },
+        dismissButton = { androidx.compose.material3.TextButton(onClick = onDismiss) { Text("Cancel") } },
+    )
+}
+
+/** Filing results after wrap-up, inside the session: needs-you items (File / Change / Discard) and Undo. */
+@OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
+@Composable
+private fun FilingResultsSheet(onClose: () -> Unit, onOpenEntry: (Long) -> Unit, onOpenTopic: (Long) -> Unit) {
+    val vm: com.maheshreddy.mym.ui.library.InboxViewModel = hiltViewModel()
+    val state by vm.state.collectAsStateWithLifecycle()
+    val subjects by vm.subjects.collectAsStateWithLifecycle()
+    val topics by vm.allTopics.collectAsStateWithLifecycle()
+    var changing by remember { mutableStateOf<com.maheshreddy.mym.data.db.EntryEntity?>(null) }
+    changing?.let { e -> com.maheshreddy.mym.ui.library.ChangeFilingDialog(e, subjects, topics, onConfirm = { vm.file(e, it); changing = null }, onDismiss = { changing = null }) }
+    androidx.compose.material3.ModalBottomSheet(
+        onDismissRequest = onClose,
+        sheetState = androidx.compose.material3.rememberModalBottomSheetState(skipPartiallyExpanded = true),
+        containerColor = Mind.colors.ground,
+        modifier = Modifier.testTag("filingSheet"),
+    ) {
+        com.maheshreddy.mym.ui.library.FilingResults(
+            state.copy(needs = state.needs.filter { it.entry.sessionId == vm.sessionId }),
+            onOpenEntry = onOpenEntry,
+            onOpenTopic = { e -> e.topicId?.let(onOpenTopic) },
+            onAccept = vm::accept, onChange = { changing = it }, onDiscard = vm::reject, onUndo = vm::undo,
+            onDone = onClose,
+        )
     }
 }
 

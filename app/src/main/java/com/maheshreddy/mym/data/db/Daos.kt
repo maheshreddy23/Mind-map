@@ -152,6 +152,14 @@ interface EntryDao {
     @Query("SELECT COUNT(*) FROM entries WHERE status = 'INBOX'")
     fun observeInboxCount(): Flow<Int>
 
+    /** Inbox empty state: the last [n] filed entries, newest first. */
+    @Query("SELECT * FROM entries WHERE status = 'FILED' ORDER BY filedAt DESC, id DESC LIMIT :n")
+    fun observeRecentFiled(n: Int): Flow<List<EntryEntity>>
+
+    /** When each entry was captured (stats: entries this week, streak). */
+    @Query("SELECT createdAt FROM entries")
+    fun observeCreatedTimes(): Flow<List<Long>>
+
     /** "Filed today": entries filed without confirmation since [since], newest first. */
     @Query("SELECT * FROM entries WHERE status = 'FILED' AND autoFiled = 1 AND filedAt >= :since ORDER BY filedAt DESC, id")
     fun observeAutoFiledSince(since: Long): Flow<List<EntryEntity>>
