@@ -6,6 +6,7 @@
 #include <atomic>
 #include <mutex>
 #include <string>
+#include <cmath>
 #include <vector>
 #include "llama.h"
 
@@ -303,6 +304,103 @@ Java_com_maheshreddy_mym_llama_LlamaNative_lastError(JNIEnv *env, jobject) {
 JNIEXPORT jstring JNICALL
 Java_com_maheshreddy_mym_llama_LlamaNative_systemInfo(JNIEnv *env, jobject) {
     return env->NewStringUTF(llama_print_system_info());
+}
+
+// ---- Sentence embeddings (Ask: search by meaning) ----
+
+JNIEXPORT jlong JNICALL
+Java_com_maheshreddy_mym_llama_LlamaNative_loadEmbedder(JNIEnv *env, jobject, jstring jpath, jint nCtx, jint threads) {
+    clearLastError();
+    const std::string path = fromJString(env, jpath);
+    llama_model_params mparams = llama_model_default_params();
+    mparams.n_gpu_layers = 0;
+    llama_model *model = nullptr;
+    try {
+        model = llama_model_load_from_file(path.c_str(), mparams);
+    } catch (const std::exception &e) {
+        recordError(e.what());
+    }
+    if (model == nullptr) return 0;
+    llama_context_params cparams = llama_context_default_params();
+    // Embedding models see the whole text at once: one micro-batch the size of the context.
+    cparams.n_ctx = static_cast<uint32_t>(nCtx);
+    cparams.n_batch = static_cast<uint32_t>(nCtx);
+    cparams.n_ubatch = static_cast<uint32_t>(nCtx);
+    cparams.n_seq_max = 1;
+    cparams.n_threads = threads;
+    cparams.n_threads_batch = threads;
+    cparams.embeddings = true;
+    cparams.pooling_type = LLAMA_POOLING_TYPE_UNSPECIFIED; // the model's own pooling (mean, CLS or last token)
+    cparams.no_perf = true;
+    llama_context *ctx = nullptr;
+    try {
+        ctx = llama_init_from_model(model, cparams);
+    } catch (const std::exception &e) {
+        recordError(e.what());
+    }
+    if (ctx == nullptr) {
+        llama_model_free(model);
+        return 0;
+    }
+    auto *s = new Session();
+    s->model = model;
+    s->ctx = ctx;
+    s->vocab = llama_model_get_vocab(model);
+    return reinterpret_cast<jlong>(s);
+}
+
+/** L2-normalised embedding of [jtext] (truncated to the context), or null on failure. */
+JNIEXPORT jfloatArray JNICALL
+Java_com_maheshreddy_mym_llama_LlamaNative_embed(JNIEnv *env, jobject, jlong p, jstring jtext) {
+    Session *s = S(p);
+    if (s == nullptr) return nullptr;
+    std::vector<llama_token> tokens = tokenize(s->vocab, fromJString(env, jtext), true);
+    const int nCtx = static_cast<int>(llama_n_ctx(s->ctx));
+    if (static_cast<int>(tokens.size()) > nCtx) tokens.resize(static_cast<size_t>(nCtx));
+    if (tokens.empty()) return nullptr;
+    if (llama_memory_t mem = llama_get_memory(s->ctx)) llama_memory_clear(mem, true);
+
+    llama_batch batch = llama_batch_init(static_cast<int32_t>(tokens.size()), 0, 1);
+    for (size_t i = 0; i < tokens.size(); i++) {
+        batch.token[batch.n_tokens] = tokens[i];
+        batch.pos[batch.n_tokens] = static_cast<llama_pos>(i);
+        batch.n_seq_id[batch.n_tokens] = 1;
+        batch.seq_id[batch.n_tokens][0] = 0;
+        batch.logits[batch.n_tokens] = true;
+        batch.n_tokens++;
+    }
+    const int rc = llama_decode(s->ctx, batch);
+    if (rc != 0) {
+        llama_batch_free(batch);
+        recordError("embedding decode failed");
+        return nullptr;
+    }
+    const int nEmbd = llama_model_n_embd_out(s->model);
+    std::vector<float> out(static_cast<size_t>(nEmbd), 0.0f);
+    if (llama_pooling_type(s->ctx) == LLAMA_POOLING_TYPE_NONE) {
+        // No pooling in the model: mean of the token embeddings.
+        for (int i = 0; i < batch.n_tokens; i++) {
+            const float *e = llama_get_embeddings_ith(s->ctx, i);
+            if (e == nullptr) continue;
+            for (int j = 0; j < nEmbd; j++) out[j] += e[j] / static_cast<float>(batch.n_tokens);
+        }
+    } else {
+        const float *e = llama_get_embeddings_seq(s->ctx, 0);
+        if (e == nullptr) {
+            llama_batch_free(batch);
+            recordError("model returned no sequence embedding");
+            return nullptr;
+        }
+        for (int j = 0; j < nEmbd; j++) out[j] = e[j];
+    }
+    llama_batch_free(batch);
+    double norm = 0;
+    for (float v : out) norm += static_cast<double>(v) * v;
+    norm = std::sqrt(norm);
+    if (norm > 0) for (float &v : out) v = static_cast<float>(v / norm);
+    jfloatArray result = env->NewFloatArray(nEmbd);
+    env->SetFloatArrayRegion(result, 0, nEmbd, out.data());
+    return result;
 }
 
 } // extern "C"

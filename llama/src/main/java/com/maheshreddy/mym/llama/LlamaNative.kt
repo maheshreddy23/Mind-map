@@ -23,6 +23,8 @@ internal object LlamaNative {
     external fun generate(
         handle: Long, prompt: String, maxTokens: Int, temperature: Float, topP: Float, seed: Int, callback: TokenCallback,
     ): Int
+    external fun loadEmbedder(modelPath: String, nCtx: Int, threads: Int): Long
+    external fun embed(handle: Long, text: String): FloatArray?
     external fun systemInfo(): String
     external fun lastError(): String
 }
